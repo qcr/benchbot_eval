@@ -118,8 +118,8 @@ class Evaluator:
             
             # Calculate IoUs
             for det_id, det_dict in enumerate(class_dets):
-            for gt_id, gt_dict in enumerate(class_gts):
-                ious_2d[gt_id, det_id], ious_3d[gt_id, det_id] = iou_calculator.dict_iou(gt_dict, det_dict)
+                for gt_id, gt_dict in enumerate(class_gts):
+                    ious_2d[gt_id, det_id], ious_3d[gt_id, det_id] = iou_calculator.dict_iou(gt_dict, det_dict)
             
             # Rank each ground-truth by how well it overlaps the given detection
             # Note in code we use 1 - iou to rank based on similarity
