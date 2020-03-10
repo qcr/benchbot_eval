@@ -5,7 +5,7 @@ import os
 import pprint
 import sys
 import numpy as np
-from iou_tools import IoU
+from .iou_tools import IoU
 
 
 class Evaluator:
@@ -32,6 +32,9 @@ class Evaluator:
     def _evaluate_scd(results_json, ground_truth_json):
         # Takes in a results json from a BenchBot submission, evaluates the
         # result using the ground truth json, & then spits out a json
+        
+        # Establish ground-truth scene change info from two ground-truth files
+
         return {
             'task_details': results_json['task_details'],
             'environment_details': results_json['environment_details'],
@@ -129,31 +132,31 @@ class Evaluator:
             # NOTE Should we be looking at different thresholds for 2D vs 3D?
             # Calculate mAP for each threshold level
             for threshold in _IOU_THRESHOLDS:
-            assigned_2d = np.zeros(ious_2d.shape, bool)
-            assigned_3d = np.zeros(ious_3d.shape, bool)
+                assigned_2d = np.zeros(ious_2d.shape, bool)
+                assigned_3d = np.zeros(ious_3d.shape, bool)
             # Perform assignments
             for det_id in range(len(class_dets)):
                 
                 # TODO Must be neater way to do this later!
                 # 2D assignment
                 for gt_id in det_assignment_rankings_2d[:,det_id]:
-                # If we are lower than the iou threshold we aren't going to find a match
-                if ious_2d[gt_id, det_id] < threshold:
-                    break
-                # If we are higher than the threshold and gt not assigned, assign it and move on
-                elif not np.any(assigned_2d[gt_id, :]):
-                    assigned_2d[gt_id, det_id] = True
-                    break
+                    # If we are lower than the iou threshold we aren't going to find a match
+                    if ious_2d[gt_id, det_id] < threshold:
+                        break
+                    # If we are higher than the threshold and gt not assigned, assign it and move on
+                    elif not np.any(assigned_2d[gt_id, :]):
+                        assigned_2d[gt_id, det_id] = True
+                        break
                 
                 # 3D assignment
                 for gt_id in det_assignment_rankings_3d[:,det_id]:
-                # If we are lower than the iou threshold we aren't going to find a match
-                if ious_3d[gt_id, det_id] < threshold:
-                    break
-                # If we are higher than the threshold and gt not assigned, assign it and move on
-                elif not np.any(assigned_3d[gt_id, :]):
-                    assigned_3d[gt_id, det_id] = True
-                    break
+                    # If we are lower than the iou threshold we aren't going to find a match
+                    if ious_3d[gt_id, det_id] < threshold:
+                        break
+                    # If we are higher than the threshold and gt not assigned, assign it and move on
+                    elif not np.any(assigned_3d[gt_id, :]):
+                        assigned_3d[gt_id, det_id] = True
+                        break
             
             # Condense to TPs and FPs for detections
             # NOTE using sum as there should be only one for each column (quicker than non_zero or bool?)
