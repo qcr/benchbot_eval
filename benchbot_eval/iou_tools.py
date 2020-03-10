@@ -72,15 +72,14 @@ class IoU:
 
         l,w,h = box_size
         #print(box_size)
-        vol = (2*l)*(2*w)*(2*h)
+        vol = (l)*(w)*(h)
         
         R = self.__rotz(heading_angle)
 
-        corners3D = np.array([
-            [-l , -l,  l , l , -l , -l , l , l ],
-            [w , -w , -w , w , w , -w , -w , w ],
-            [-h , -h , -h , -h , h , h , h , h ],
-        ])
+        corners3D = 0.5 * np.array([[-l , -l,  l , l , -l , -l , l , l ],
+                                    [w , -w , -w , w , w , -w , -w , w ],
+                                    [-h , -h , -h , -h , h , h , h , h ],
+                                   ])
         
         #corners3D = np.dot(R,corners3D)
 
