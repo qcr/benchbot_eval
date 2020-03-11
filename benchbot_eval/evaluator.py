@@ -195,8 +195,8 @@ class Evaluator:
                          det_dict['changed_state'] == 'added']
         
         # Get the mAP scores for the removed and added maps
-        scores_rem = self._compute_map(gt_dicts_rem, det_dicts_rem)
-        scores_add = self._compute_map(gt_dicts_add, det_dicts_add)
+        scores_rem = Evaluator._compute_map(gt_dicts_rem, det_dicts_rem)
+        scores_add = Evaluator._compute_map(gt_dicts_add, det_dicts_add)
 
         # Calculate weighted average of removed and added scores
         mAP3d_rem = scores_rem['mAP3D']
@@ -218,9 +218,7 @@ class Evaluator:
         return {
             'task_details': results_data['task_details'],
             'environment_details': results_data['environment_details'],
-            'scores': {
-                scores
-            }
+            'scores': scores
         }
 
     @staticmethod
@@ -277,7 +275,7 @@ class Evaluator:
         elif (results_data['task_details']['type'] !=
               Evaluator._TYPE_SEMANTIC_SLAM and
               results_data['task_details']['type'] !=
-              Evaluator._TYPE_SEMANTIC_SLAM):
+              Evaluator._TYPE_SCD):
             self._format_error(
                 "results_data['task_details']['type'] is "
                 "not '%s' or '%s'. No other modes are supported." %
