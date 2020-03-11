@@ -110,7 +110,7 @@ class Evaluator:
             
             # NOTE Should we be looking at different thresholds for 2D vs 3D?
             # Calculate mAP for each threshold level
-            for threshold in _IOU_THRESHOLDS:
+            for threshold in Evaluator._IOU_THRESHOLDS:
                 assigned_2d = np.zeros(ious_2d.shape, bool)
                 assigned_3d = np.zeros(ious_3d.shape, bool)
                 
@@ -145,8 +145,8 @@ class Evaluator:
                 fps_2d = np.logical_not(tps_2d)
                 fps_3d = np.logical_not(tps_3d)
 
-                mAP_2d = self._compute_ap(tps_2d, fps_2d, len(class_gts))
-                mAP_3d = self._compute_ap(tps_3d, fps_3d, len(class_gts))
+                mAP_2d = Evaluator._compute_ap(tps_2d, fps_2d, len(class_gts))
+                mAP_3d = Evaluator._compute_ap(tps_3d, fps_3d, len(class_gts))
 
                 total_mAP_2d += mAP_2d
                 total_mAP_3d += mAP_3d
@@ -159,8 +159,8 @@ class Evaluator:
                     mAP_2d_50 = mAP_2d
         
         # Average over the number of classes to get final mAP score
-        mAP_2d = total_mAP_2d / (len(object_classes)*len(_IOU_THRESHOLDS))
-        mAP_3d = total_mAP_3d / (len(object_classes)*len(_IOU_THRESHOLDS))
+        mAP_2d = total_mAP_2d / (len(object_classes)*len(Evaluator._IOU_THRESHOLDS))
+        mAP_3d = total_mAP_3d / (len(object_classes)*len(Evaluator._IOU_THRESHOLDS))
 
         return {
                 'mAP3D': mAP_3d,
@@ -238,7 +238,7 @@ class Evaluator:
         return {
             'task_details': results_data['task_details'],
             'environment_details': results_data['environment_details'],
-            'scores': self._compute_map(gt_dicts, det_dicts)
+            'scores': Evaluator._compute_map(gt_dicts, det_dicts)
         
         }
 
