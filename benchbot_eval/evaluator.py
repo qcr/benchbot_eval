@@ -83,10 +83,10 @@ class Evaluator:
 
         total_mAP_2d = 0.0
         total_mAP_3d = 0.0
-        mAP_3d_25 = 0.0
-        mAP_2d_25 = 0.0
-        mAP_3d_50 = 0.0
-        mAP_2d_50 = 0.0
+        total_mAP_3d_25 = 0.0
+        total_mAP_2d_25 = 0.0
+        total_mAP_3d_50 = 0.0
+        total_mAP_2d_50 = 0.0
 
         # Evaluate AP for each class
         for object_class in object_classes:
@@ -165,17 +165,21 @@ class Evaluator:
                 total_mAP_3d += mAP_3d
 
                 if threshold == 0.25:
-                    mAP_3d_25 = mAP_3d
-                    mAP_2d_25 = mAP_2d
+                    total_mAP_3d_25 += mAP_3d
+                    total_mAP_2d_25 += mAP_2d
                 elif threshold == 0.5:
-                    mAP_3d_50 = mAP_3d
-                    mAP_2d_50 = mAP_2d
+                    total_mAP_3d_50 += mAP_3d
+                    total_mAP_2d_50 += mAP_2d
 
         # Average over the number of classes to get final mAP score
         mAP_2d = total_mAP_2d / (len(object_classes) *
                                  len(Evaluator._IOU_THRESHOLDS))
         mAP_3d = total_mAP_3d / (len(object_classes) *
                                  len(Evaluator._IOU_THRESHOLDS))
+        mAP_2d_25 = total_mAP_2d_25 / len(object_classes)
+        mAP_3d_25 = total_mAP_3d_25 / len(object_classes)
+        mAP_2d_50 = total_mAP_2d_50 / len(object_classes)
+        mAP_3d_50 = total_mAP_3d_50 / len(object_classes)
 
         return {
             'mAP3D': mAP_3d,
