@@ -87,6 +87,13 @@ would equate to the following task and environment details:
 }
 ```
 
+All detections are given as a dictionary defining the object.
+The value of "class" is given as a string and must match one in the class list given in the class list at the top of the page.
+The "confidence" provided is the confidence the system has that the class given is correct.
+The "centroid" and "extent" define the location of the detected object
+
+**Important!** values for the centroid and extent of the detection are given in metres and are in global coordinates. Extent defines the absolute length of the bounding box along the x, y, and z axes and not the distance from the centroid to the bounding box edge.
+
 ### Scene Change Detection Format Differences
 While mostly following the format given above, some slight differences exist for scene change detection.
 
