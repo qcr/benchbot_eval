@@ -1,41 +1,42 @@
-**NOTE: this software is part of the BenchBot Software Stack, and not intended to be run in isolation. For a working BenchBot system, please install the BenchBot Software Stack by following the instructions [here](https://github.com/RoboticVisionOrg/benchbot).**
+**NOTE: this software is part of the BenchBot software stack, and not intended to be run in isolation (although it can be installed independently through pip & run on results files if desired). For a working BenchBot system, please install the BenchBot software stack by following the instructions [here](https://github.com/RoboticVisionOrg/benchbot).**
 
 # BenchBot Evaluation
-BenchBot Evaluation contains the code used for evaluating Semantic SLAM and Scene Change Detections as utilised in the ACRV's BenchBot Scene Understanding challenges. The easiest way to use this module is through the helper scripts provided with BenchBot.
+BenchBot Evaluation contains the code used for evaluating the performance of a BenchBot system in two core semantic scene understanding tasks: semantic SLAM, and scene change detection. The easiest way to use this module is through the helper scripts provided with the [BenchBot software stack](https://github.com/RoboticVisionOrg/benchbot).
 
-For both challenges, the evaluated system will need to be able to determine the 3D bounding box location of 30 different classes of object.
-
-These 30 classes are:
+For both types of semantic scene understanding task, the tested system will need to produce a results file describing the 3D bounding box location of objects from within the following class list:
 ```
 [bottle, cup, knife, bowl, wine glass, fork, spoon, banana, apple, orange, cake, potted plant, mouse, keyboard, laptop, cell phone, book, clock, chair, table, couch, bed, toilet, tv, microwave, toaster, refrigerator, oven, sink, person]
 ```
 
-## Semantic SLAM Evaluation
+## Installing & performing evaluation with BenchBot Evaluation
 
-![semantic_slam_object_map](./docs/semantic_slam_obmap.png)
+BenchBot Evaluation is a Python package, installable with pip. Run the following in the root directory of where this repository was cloned:
 
-The Semantic SLAM challenge requires competitors to generate a semantic object map of a given environment that they have explored. 
-All instances of any of the 30 classes must be identified and 3D bounding boxes should be axis aligned to the world coordinate system (world pose information given as part of the benchbot framework upon submitting a solution to the challenge).
+```
+u@pc:~$ pip install .
+```
 
-Evaluation compares the semantic object map provided with the ground-truth map of the environment.
-The evaluation process currently uses 3D mAP and a bird's eye view 2D mAP to determine the level of success in the task.
+Although evaluation is best run from within the BenchBot software stack, it can be run in isolation if desired. The following code snippet shows how to perform evaluation from Python:
 
-## Scene Change Detection (SCD) Evaluation
+```python
+from benchbot_eval.evaluator import Evaluator
 
-![scene_change_detection_object_map](./docs/scd_obmap.png)
+results_filename = "/path/to/your/detection/results.json"
+ground_truth_folder = "/path/to/your/ground_truth/folder"
+save_file = "/path/to/save/file/for/scores.txt"
 
-The Scene Change Detection challenge requires competitors to generate a semantic object map of all the changes found between two traversals of an environment.
-Changes to be detected are that some objects will be removed, and others added to the environment between traversals.
+my_evaluator = Evaluator(results_filename, ground_truth_folder, save_file)
+my_evaluator.evaluate()
+```
 
-As with the Semantic SLAM challenge, competitors must report the class label and 3D bounding box location of all changed objects within the world coordinate system.
-A label should also be provided defining if the object has been removed or added to the environment.
+This prints the final scores to the screen and saves them to the named file:
+- `results_filename`: points to the JSON file with the output from your experiment (in the format [described below](#detection-result-format))
+- `ground_truth_folder`: the directory containing the relevant environment ground truth JSON files
+- `save_file`: is where final scores are to be saved
 
-Evaluation compares the semantic map with "added" and "removed" flags with the ground-truth difference between the ground-truth object maps of the two environments examined.
-Currently this evaluation is done using the weighted average of mAP scores between the "added" and "removed" maps formed by separating the appropriate objects from the main semantic object map.
+## Detection result format
 
-## Detection Result Format
-
-Detection results should be presented in a json file with a standard basic format. Some slight differences apply for scene change detection which you can find [here](###scene-change-detection-format-differences).
+Detection results must be presented in a JSON file containing a certain named fields. Some slight differences apply for scene change detection tasks, which are described in more detail [further down](#scene-change-detection-format-differences).
 
 An example of the basic detection results format is as follows:
 ```
@@ -47,7 +48,7 @@ An example of the basic detection results format is as follows:
     },
     "environment_details": {
         "name": <test_environment_name>,
-        "numbers": [<test_environment_number>]
+        "numbers": [<test_environment_numbers>]
     },
     "detections": [
         {
@@ -56,26 +57,28 @@ An example of the basic detection results format is as follows:
             "centroid": [<xc>, <yc>, <zc>],
             "extent": [<xe>, <ye>, <ze>]
         },
-        .
-        .
-        .
+        ...
     ]
 }
 ```
 
-The "task_details" and "environment_details" define what problem this results file was trying to solve.
-These are defined within benchbot when you perform `benchbot_run` command to start an experiment.
-These should be attainable as part of the benchbot_api which you can find [here](https://github.com/RoboticVisionOrg/benchbot_api) but below is a quick breakdown of how it should look.
+An algorithm attempting to solve a semantic scene understanding task only has to fill in the list of `"detections"`; everything else can be pre-populated using the appropriate [BenchBot API methods](https://github.com/RoboticVisionOrg/benchbot_api). All detections must be given as a dictionary with the following named fields:
+- `"class"`: a string which must match a class in the class list at the top of this page
+- `"confidence"`: a normalised value between 0 & 1 denoting the system's confidence that the selected class is correct
+- `"centroid"`: centre of the detection's 3D bounding box
+- `"extent"`: the size dimension of the detection's 3D bounding box along each of the 3 axes (full size, **not** distance from centroid to bounding box edge)
 
-As an example, the command: 
+**NOTE: the centroid and extent of the 3D bounding box must be in global coordinates (& metres)**
 
-```
-benchbot_run --task semantic_slam:passive:ground_truth --env miniroom:1
-```
-
-would equate to the following task and environment details:
+The `"task_details"` and `"environment_details"` fields define what task was being solved when the results file was produced, & what environment the agent was operating in. These values are defined in the BenchBot software stack when `benchbot_run` is executed to start a new task. For example:
 
 ```
+u@pc:~$ benchbot_run --task semantic_slam:passive:ground_truth --env miniroom:1
+```
+
+would produce the following:
+
+```json
 "task_details": {
     "type": "semantic_slam",
     "control_mode": "passive",
@@ -87,72 +90,61 @@ would equate to the following task and environment details:
 }
 ```
 
-All detections are given as a dictionary defining the object.
-The value of "class" is given as a string and must match one in the class list given in the class list at the top of the page.
-The "confidence" provided is the confidence the system has that the class given is correct.
-The "centroid" and "extent" define the location of the detected object
+Values for these fields are easily obtained at runtime through the `BenchBot.task_details` & `BenchBot.environment_details` API properties (see [here](https://github.com/RoboticVisionOrg/benchbot_api) for more details). Alternatively, `BenchBot.empty_results()` can be called to create a results `dict` with all fields populated except `"detections"`.
 
-**Important!** values for the centroid and extent of the detection are given in metres and are in global coordinates. Extent defines the absolute length of the bounding box along the x, y, and z axes and not the distance from the centroid to the bounding box edge.
+### Format differences for scene change detection tasks
 
-### Scene Change Detection Format Differences
-While mostly following the format given above, some slight differences exist for scene change detection.
+There are two minor differences in results produced for scene change detection tasks:
+1) `"environment_details"` contains two numbers referring to the first and second scenes of the environment that will be traversed. For example:
 
-Firstly, "environment_details" will contain two numbers for the first and second versions of the environment you traverse. 
+  ```
+  u@pc:~$ benchbot_run --task scd:active:ground_truth --env miniroom:1:5
+  ```
 
-For example:
-```
-benchbot_run --task scd:active:ground_truth --env miniroom:15
-```
+  would produce the following:
 
-would equate to the following task and environment details:
+  ```json
+  "task_details": {
+      "type": "scd",
+      "control_mode": "active",
+      "localisation_mode": "ground_truth"
+  },
+  "environment_details": {
+      "name": "miniroom",
+      "numbers": [1,5]
+  }
+  ```
 
-```
-"task_details": {
-    "type": "scd",
-    "control_mode": "active",
-    "localisation_mode": "ground_truth"
-},
-"environment_details": {
-    "name": "miniroom",
-    "numbers": [1,5]
-}
-```
+2) all detections require an extra `"changed_state"` value, meaning detections must have the following format:
+  ```
+  ...
+  {
+      "class": <object_class_name>,
+      "confidence": <object_class_confidence>,
+      "changed_state": <object_env2_state>,
+      "centroid": [<xc>, <yc>, <zc>],
+       "extent": [<xe>, <ye>, <ze>]
+  }
+  ...
+  ```
+  where `<object_env2_state>` is either the string `"added"` or `"removed"` denoting whether the system suggests the object has been added or removed between the first and second environments.
 
-Secondly, all detection dictionaries will have an extra "changed_state" key, leaving all detections with the following format:
-```
-{
-    "class": <object_class_name>,
-    "confidence": <object_class_confidence>,
-    "changed_state": <object_env2_state>,
-    "centroid": [<xc>, <yc>, <zc>],
-     "extent": [<xe>, <ye>, <ze>]
-}
-```
-where `<object_env2_state>` is either "added" or "removed" depending on whether the system thinks the object has been added or removed between the first and second environments.
+## Details of evaluation processes
 
-# Package Requirements
-As per the note at the top of this page, this repo should not be used in isolation, however the package requirements are as follows:
+### Semantic SLAM
 
-```
-numpy
-shapely
-```
+![semantic_slam_object_map](./docs/semantic_slam_obmap.png)
 
-# Running BenchBot Evaluate
-This should not be done in isolation but as part of the BenchBot framework as per the note at the top of this page.
-However, using this package in isolation is done as follows in python:
+Solutions to semantic SLAM tasks require the generation of a semantic object map for a given environment that the agent has explored. All object instances from any of the 30 classes must be identified, & 3D bounding boxes must be axis aligned to the world coordinate system. World coordinate frame information is given by `'poses'` observations generated by the BenchBot API. 
 
-```
-from benchbot_eval.evaluator import Evaluator
+Evaluation compares the semantic object map provided by the detections with the ground-truth map of the environment. The evaluation process currently uses 3D mAP and a bird's eye view 2D mAP ("mapbev") to determine the level of success in the task.
 
-results_filename = "/path/to/your/detection/results.json"
-ground_truth_folder = "/path/to/your/ground_truth/folder"
-save_file = "/path/to/save/file/for/scores.txt"
+### Scene change detection (SCD)
 
-my_evaluator = Evaluator(results_filename, ground_truth_folder, save_file)
-my_evaluator.evaluate()
-```
+![scene_change_detection_object_map](./docs/scd_obmap.png)
 
-where the results_filename should point to the .json file with the output from your experiment in the format described in [Detection Results Format](##detection-results-format), ground_truth_folder should point to the directory containing all ground-truth file .jsons for all environments, and save_file should be where you wish to save your final scores to.
+Solutions to scene change detection tasks require the generation of a semantic object map identifying all changes found between two distinct traversals of an environment. Changes to be detected are the removal of some objects, and addition of others, between environment traversals.
 
-This will print the final scores to the screen and save them to the named file.
+As with semantic SLAM tasks, results must report the class label and 3D bounding box location of all changed objects relative to the world coordinate system. A value for the `"changed_state"` field must also be provided declaring if the object has been removed or added to the environment.
+
+Evaluation compares the semantic map of `"added"` and `"removed"` objects with a ground-truth difference map. The library dynamically generates the ground-truth difference map by comparing the ground-truth object maps of the two traversed environments. The evaluation process currently uses the weighted average of mAP scores between the `"added"` and `"removed"` maps formed by separating the appropriate objects from the main semantic object map.
