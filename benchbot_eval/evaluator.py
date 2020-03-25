@@ -5,7 +5,9 @@ import os
 import pprint
 import sys
 import numpy as np
-from .iou_tools import IoU
+from iou_tools import IoU
+from cdq3d import CDQ3D
+from classes import CLASS_LIST
 
 
 class Evaluator:
@@ -29,166 +31,6 @@ class Evaluator:
         self.results_filename = results_filename
         self.ground_truth_dir = ground_truth_dir
         self.scores_filename = scores_filename
-
-    @staticmethod
-    def _compute_ap(tps, fps, num_gt):
-        """
-        Adapted from https://github.com/rbgirshick/py-faster-rcnn/blob/master/lib/datasets/voc_eval.py
-        Calculate the AP given the recall and precision array
-        1st) We compute a version of the measured precision/recall curve with
-            precision monotonically decreasing
-        2nd) We compute the AP as the area under this curve by numerical integration.
-        Input is tp and fp boolean vectors ordered by highest class confidence
-        """
-        # Check if we have any TPs at all. If not mAP is zero
-        if np.sum(tps) == 0:
-            return 0
-        # Calculate cumulative sums
-        cum_fp = np.cumsum(fps)
-        cum_tp = np.cumsum(tps)
-
-        # Calculate the recall and precision as each detection is "introduced"
-        # Note this is ordered by class confidence starting with highest confidence
-        rec = cum_tp / num_gt
-        prec = cum_tp / (cum_tp + cum_fp + 1e-10)
-
-        # bound the precisions and recall values
-        mrec = np.concatenate(([0.], rec, [1.]))
-        mpre = np.concatenate(([0.], prec, [0.]))
-
-        # compute the precision envelope
-        # i.e. remove the "wiggles" from the PR curve
-        for i in range(mpre.size - 1, 0, -1):
-            mpre[i - 1] = np.maximum(mpre[i - 1], mpre[i])
-
-        # to calculate area under PR curve, look for points
-        # where X axis (recall) changes value
-        i = np.where(mrec[1:] != mrec[:-1])[0]
-
-        # and sum (\Delta recall) * prec
-        ap = np.sum((mrec[i + 1] - mrec[i]) * mpre[i + 1])
-        return ap
-
-    @staticmethod
-    def _compute_map(gt_dicts, det_dicts):
-        """
-        Calculate all map score summaries for given set of ground-truth objects and detections.
-        Here ground-truth objects and detections are represented with dictionaries
-        """
-        # Compile collection of all classes of ground-truth objects
-        # NOTE we do not care about if detection has an unkown class (all such detections would be FPs)
-        object_classes = list(
-            np.unique([gt_dict['class'] for gt_dict in gt_dicts]))
-        iou_calculator = IoU()
-
-        total_mAP_2d = 0.0
-        total_mAP_3d = 0.0
-        total_mAP_3d_25 = 0.0
-        total_mAP_2d_25 = 0.0
-        total_mAP_3d_50 = 0.0
-        total_mAP_2d_50 = 0.0
-
-        # Evaluate AP for each class
-        for object_class in object_classes:
-            # Get the detections for the current class (sorted by highest confidence)
-            class_dets = [
-                det_dict for det_dict in det_dicts
-                if det_dict['class'] == object_class
-            ]
-            class_dets = sorted(class_dets,
-                                key=lambda conf: conf['confidence'],
-                                reverse=True)
-
-            # Get the ground-truth instances for the current class
-            class_gts = [
-                gt_dict for gt_dict in gt_dicts
-                if gt_dict['class'] == object_class
-            ]
-
-            # Matrix holding the IoU values for 2D and 3D situation for each GT and Det
-            ious_2d = np.ones((len(class_gts), len(class_dets)))  # G x D
-            ious_3d = np.ones((len(class_gts), len(class_dets)))  # G x D
-
-            # Calculate IoUs
-            for det_id, det_dict in enumerate(class_dets):
-                for gt_id, gt_dict in enumerate(class_gts):
-                    ious_2d[gt_id, det_id], ious_3d[
-                        gt_id, det_id] = iou_calculator.dict_iou(
-                            gt_dict, det_dict)
-
-            # Rank each ground-truth by how well it overlaps the given detection
-            # Note in code we use 1 - iou to rank based on similarity
-            det_assignment_rankings_2d = np.argsort((1 - ious_2d), axis=0)
-            det_assignment_rankings_3d = np.argsort((1 - ious_3d), axis=0)
-
-            # NOTE Should we be looking at different thresholds for 2D vs 3D?
-            # Calculate mAP for each threshold level
-            for threshold in Evaluator._IOU_THRESHOLDS:
-                assigned_2d = np.zeros(ious_2d.shape, bool)
-                assigned_3d = np.zeros(ious_3d.shape, bool)
-
-                # Perform assignments
-                for det_id in range(len(class_dets)):
-
-                    # TODO Must be neater way to do this later!
-                    # 2D assignment
-                    for gt_id in det_assignment_rankings_2d[:, det_id]:
-                        # If we are lower than the iou threshold we aren't going to find a match
-                        if ious_2d[gt_id, det_id] < threshold:
-                            break
-                        # If we are higher than the threshold and gt not assigned, assign it and move on
-                        elif not np.any(assigned_2d[gt_id, :]):
-                            assigned_2d[gt_id, det_id] = True
-                            break
-
-                    # 3D assignment
-                    for gt_id in det_assignment_rankings_3d[:, det_id]:
-                        # If we are lower than the iou threshold we aren't going to find a match
-                        if ious_3d[gt_id, det_id] < threshold:
-                            break
-                        # If we are higher than the threshold and gt not assigned, assign it and move on
-                        elif not np.any(assigned_3d[gt_id, :]):
-                            assigned_3d[gt_id, det_id] = True
-                            break
-
-                # Condense to TPs and FPs for detections
-                # NOTE using sum as there should be only one for each column (quicker than non_zero or bool?)
-                tps_2d = np.sum(assigned_2d, axis=0).astype(bool)
-                tps_3d = np.sum(assigned_3d, axis=0).astype(bool)
-                fps_2d = np.logical_not(tps_2d)
-                fps_3d = np.logical_not(tps_3d)
-
-                mAP_2d = Evaluator._compute_ap(tps_2d, fps_2d, len(class_gts))
-                mAP_3d = Evaluator._compute_ap(tps_3d, fps_3d, len(class_gts))
-
-                total_mAP_2d += mAP_2d
-                total_mAP_3d += mAP_3d
-
-                if threshold == 0.25:
-                    total_mAP_3d_25 += mAP_3d
-                    total_mAP_2d_25 += mAP_2d
-                elif threshold == 0.5:
-                    total_mAP_3d_50 += mAP_3d
-                    total_mAP_2d_50 += mAP_2d
-
-        # Average over the number of classes to get final mAP score
-        mAP_2d = total_mAP_2d / (len(object_classes) *
-                                 len(Evaluator._IOU_THRESHOLDS))
-        mAP_3d = total_mAP_3d / (len(object_classes) *
-                                 len(Evaluator._IOU_THRESHOLDS))
-        mAP_2d_25 = total_mAP_2d_25 / len(object_classes)
-        mAP_3d_25 = total_mAP_3d_25 / len(object_classes)
-        mAP_2d_50 = total_mAP_2d_50 / len(object_classes)
-        mAP_3d_50 = total_mAP_3d_50 / len(object_classes)
-
-        return {
-            'mAP3D': mAP_3d,
-            'mAPbev': mAP_2d,
-            'mAP3D_25': mAP_3d_25,
-            'mAP3D_50': mAP_3d_50,
-            'mAPbev_25': mAP_2d_25,
-            'mAPbev_50': mAP_2d_50,
-        }
 
     @staticmethod
     def _evaluate_scd(results_data, ground_truth1_data, ground_truth2_data):
@@ -221,38 +63,27 @@ class Evaluator:
             det_dict['changed_state'] == 'added'
         ]
 
-        # Get the mAP scores for the removed and added maps
-        scores_rem = Evaluator._compute_map(gt_dicts_rem, det_dicts_rem)
-        scores_add = Evaluator._compute_map(gt_dicts_add, det_dicts_add)
+        evaluator = CDQ3D()
 
-        # Calculate weighted average of removed and added scores
-        mAP3d_rem = scores_rem['mAP3D']
-        mAP3d_add = scores_add['mAP3D']
-        mAP2d_rem = scores_rem['mAPbev']
-        mAP2d_add = scores_add['mAPbev']
-        ngt_add = len(gt_dicts_add)
-        ngt_rem = len(gt_dicts_rem)
+        # Get the CDQ3D scores for the removed and added maps
+        scores_rem = {'CDQ3D': evaluator.score([(gt_dicts_rem, det_dicts_rem)]),
+                      'avg_pairwise': evaluator.get_avg_overall_quality_score(),
+                      'avg_label': evaluator.get_avg_label_score(),
+                      'avg_spatial': evaluator.get_avg_spatial_score(),
+                      'avg_fp_quality': evaluator.get_avg_fp_score()}
+        scores_add = {'CDQ3D': evaluator.score([(gt_dicts_add, det_dicts_add)]),
+                      'avg_pairwise': evaluator.get_avg_overall_quality_score(),
+                      'avg_label': evaluator.get_avg_label_score(),
+                      'avg_spatial': evaluator.get_avg_spatial_score(),
+                      'avg_fp_quality': evaluator.get_avg_fp_score()}
 
-        # NOTE here the mAP3D an mAPbev are weighted averages of the rem and add scores
-        scores = {
-            'mAP3D_a':
-                mAP3d_add,
-            'mAP3D_r':
-                mAP3d_rem,
-            'mAPbev_a':
-                mAP2d_add,
-            'mAPbev_r':
-                mAP2d_rem,
-            'mAP3D': (ngt_add * mAP3d_add + ngt_rem * mAP3d_rem) /
-                     (ngt_add + ngt_rem),
-            'mAPbev': (ngt_add * mAP2d_add + ngt_rem * mAP2d_rem) /
-                      (ngt_add + ngt_rem)
-        }
+        # Taking overall score average across removed and added for now
+        avg_scores = {key: np.mean(scores_rem[key], scores_add[key]) for key in scores_rem}
 
         return {
             'task_details': results_data['task_details'],
             'environment_details': results_data['environment_details'],
-            'scores': scores
+            'scores': avg_scores
         }
 
     @staticmethod
@@ -266,10 +97,18 @@ class Evaluator:
 
         gt_dicts = ground_truth_data['objects']
 
+        evaluator = CDQ3D()
+
+        scores = {'CDQ3D': evaluator.score([(gt_dicts, det_dicts)]),
+                  'avg_pairwise': evaluator.get_avg_overall_quality_score(),
+                  'avg_label': evaluator.get_avg_label_score(),
+                  'avg_spatial': evaluator.get_avg_spatial_score(),
+                  'avg_fp_quality': evaluator.get_avg_fp_score()}
+
         return {
             'task_details': results_data['task_details'],
             'environment_details': results_data['environment_details'],
-            'scores': Evaluator._compute_map(gt_dicts, det_dicts)
+            'scores': scores
         }
 
     def _format_error(self, description):
@@ -316,6 +155,28 @@ class Evaluator:
                 "not '%s' or '%s'. No other modes are supported." %
                 (Evaluator._TYPE_SEMANTIC_SLAM, Evaluator._TYPE_SCD))
 
+    @staticmethod
+    def _format_gt(gt_data):
+        # This should only be temporary code assuming we keep the current evaluation process and GT format
+        for gt_dict in gt_data['objects']:
+            # change classes by name to class ids based on CLASS_LIST
+            gt_dict['class_id'] = np.argwhere(np.array(CLASS_LIST) == gt_dict.pop('class'))[0][0]
+        return gt_data
+
+    @staticmethod
+    def _check_results_format(result_data):
+        if 'detections' not in result_data.keys():
+            raise ValueError('Results dictionary does not have a "detections" key')
+
+        # check result detections have a prob_dist key and content is formatted correctly
+        for det_id, det_dict in enumerate(result_data['detections']):
+            if 'prob_dist' not in det_dict.keys():
+                raise ValueError('Detection {} does not have a "prob_dist" key'.format(det_id))
+            if len(det_dict['prob_dist']) != len(CLASS_LIST):
+                raise ValueError('Probability distributioin for detection {} has incorrect size.\n'
+                                 'Is {} but should match CLASS_LIST size ({})'
+                                 ''.format(det_id, len(det_dict['prob_dist']), len(CLASS_LIST)))
+
     def evaluate(self):
         # Open the submission & attempt to perform evaluation
         print("Evaluating the performance from results in: %s\n" %
@@ -328,13 +189,15 @@ class Evaluator:
         # Get the ground_truth_data by using the environment fields in
         # results_data
         self._validate_environment(results_data)
+        Evaluator._check_results_format(results_data)
         ground_truth_data_all = []
         for number in results_data['environment_details']['numbers']:
             with open(
                     self._ground_truth_file(
                         results_data['environment_details']['name'], number),
                     'r') as f:
-                ground_truth_data_all.append(json.load(f))
+                # NOTE should remove format step in time
+                ground_truth_data_all.append(Evaluator._format_gt((json.load(f))))
 
         # Perform evaluation
         if results_data['task_details']['type'] == Evaluator._TYPE_SCD:
