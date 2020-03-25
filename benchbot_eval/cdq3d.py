@@ -3,8 +3,7 @@ from __future__ import absolute_import, division, print_function, unicode_litera
 import numpy as np
 from scipy.optimize import linear_sum_assignment
 from scipy.stats import gmean
-from tqdm import tqdm
-import iou_tools
+from . import iou_tools
 
 _IOU_TOOL = iou_tools.IoU()
 
@@ -90,7 +89,7 @@ class CDQ3D(object):
         self.reset()
 
         num_maps = len(param_lists)
-        for map_params in tqdm(param_lists, total=num_maps, desc='Semantic SLAM maps'):
+        for map_params in param_lists:
             map_results = _get_map_evals(map_params)
             self._tot_overall_quality += map_results['overall']
             self._tot_spatial_quality += map_results['spatial']

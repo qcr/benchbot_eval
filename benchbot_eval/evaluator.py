@@ -5,9 +5,9 @@ import os
 import pprint
 import sys
 import numpy as np
-from iou_tools import IoU
-from cdq3d import CDQ3D
-from classes import CLASS_LIST
+from .iou_tools import IoU
+from .cdq3d import CDQ3D
+from .classes import CLASS_LIST
 
 
 class Evaluator:
