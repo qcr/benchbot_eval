@@ -174,7 +174,8 @@ class Evaluator:
                 raise ValueError('Detection {} does not have a "prob_dist" key'.format(det_id))
             if len(det_dict['prob_dist']) != len(CLASS_LIST):
                 raise ValueError('Probability distributioin for detection {} has incorrect size.\n'
-                                 'Is {} but should match CLASS_LIST size ({})'
+                                 'Is {} but should match CLASS_LIST size ({})\n'
+                                 'Note, the final class is background.'
                                  ''.format(det_id, len(det_dict['prob_dist']), len(CLASS_LIST)))
 
     def evaluate(self):

@@ -27,5 +27,6 @@ CLASS_LIST = ['bottle',
               'refrigerator',
               'oven',
               'sink',
-              'person'
+              'person',
+              'background'
               ]

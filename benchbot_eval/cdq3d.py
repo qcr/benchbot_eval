@@ -326,8 +326,8 @@ def _calc_qual_map(gt_instances, det_instances):
     if len(gt_instances) == 0 or len(det_instances) == 0:
         if len(det_instances) > 0:
             # Calculate FP quality
-            # TODO handle background class if present and where it is. Currently no background class considered
-            tot_fp_cost = np.sum([np.max(det_instance['prob_dist']) for det_instance in det_instances])
+            # NOTE background class is the final class in the distribution which is ignored when calculating FP cost
+            tot_fp_cost = np.sum([np.max(det_instance['prob_dist'][:-1]) for det_instance in det_instances])
 
             map_det_evals = [{"det_id": idx, "gt_id": None, "ignore": False, "matched": False,
                               "overall": 0.0, "spatial": 0.0, "label": 0.0, "correct_class": None}
@@ -412,8 +412,8 @@ def _calc_qual_map(gt_instances, det_instances):
     map_gt_evals = [map_gt_evals[idx] for idx in np.argsort(img_gt_eval_idxs)]
 
     # Calculate the penalty for assigning a high label probability to false positives
-    # TODO handle background class if present and where it is. Currently no background class considered
-    tot_fp_cost = np.sum([np.max(det_instances[i]['prob_dist']) for i in false_positive_idxs])
+    # NOTE background class is final class in the class list and is not considered
+    tot_fp_cost = np.sum([np.max(det_instances[i]['prob_dist'][:-1]) for i in false_positive_idxs])
 
     return {'overall': tot_overall_img_quality, 'spatial': tot_tp_spatial_quality, 'label': tot_tp_label_quality,
             'fp_cost': tot_fp_cost, 'TP': true_positives, 'FP': false_positives, 'FN': false_negatives,
