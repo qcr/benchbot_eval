@@ -3,11 +3,9 @@ from __future__ import print_function
 import json
 import os
 import pprint
-import sys
 import numpy as np
-from .iou_tools import IoU
 from .cdq3d import CDQ3D
-from .classes import CLASS_LIST
+from . import class_list as cl
 
 
 class Evaluator:
@@ -160,23 +158,59 @@ class Evaluator:
         # This should only be temporary code assuming we keep the current evaluation process and GT format
         for gt_dict in gt_data['objects']:
             # change classes by name to class ids based on CLASS_LIST
-            gt_dict['class_id'] = np.argwhere(np.array(CLASS_LIST) == gt_dict.pop('class'))[0][0]
+            gt_dict['class_id'] = cl.CLASS_IDS[gt_dict.pop('class')]
         return gt_data
 
     @staticmethod
-    def _check_results_format(result_data):
-        if 'detections' not in result_data.keys():
-            raise ValueError('Results dictionary does not have a "detections" key')
+    def _format_results_data(result_data):
+        if 'detections' not in result_data:
+            raise KeyError('Results dictionary does not have a "detections" key')
+        if 'class_list' not in result_data:
+            # TODO Should change this to a warning rather than a print
+            print('Warning! class_list not provided in result_data, assuming default class list')
+            result_class_list = cl.CLASS_LIST
+        else:
+            result_class_list = result_data['class_list']
 
         # check result detections have a prob_dist key and content is formatted correctly
         for det_id, det_dict in enumerate(result_data['detections']):
             if 'prob_dist' not in det_dict.keys():
-                raise ValueError('Detection {} does not have a "prob_dist" key'.format(det_id))
-            if len(det_dict['prob_dist']) != len(CLASS_LIST):
+                raise KeyError('Detection {} does not have a "prob_dist" key'.format(det_id))
+
+            if len(det_dict['prob_dist']) != len(result_class_list):
                 raise ValueError('Probability distributioin for detection {} has incorrect size.\n'
-                                 'Is {} but should match CLASS_LIST size ({})\n'
+                                 'Is {} but should match your defined class list size ({})\n'
                                  'Note, the final class is background.'
-                                 ''.format(det_id, len(det_dict['prob_dist']), len(CLASS_LIST)))
+                                 ''.format(det_id, len(det_dict['prob_dist']), len(result_class_list)))
+
+            # Format the probability distribution to match the class list order used for evaluation
+            # Work out which of the submission classes correspond to which of our classes
+
+            det_dict['prob_dist'] = Evaluator._format_prob_dist(result_class_list, det_dict['prob_dist'])
+
+    @staticmethod
+    def _format_prob_dist(original_class_list, original_prob_dist):
+        # Find the corresponding indices for every entry in the probability distribution
+        eval_class_ids = []
+        original_class_ids = []
+        for sub_class_id, class_name in enumerate(original_class_list):
+            our_class_id = cl.get_class_id(class_name)
+            if our_class_id is not None:
+                eval_class_ids.append(our_class_id),
+                original_class_ids.append(sub_class_id)
+
+        # Use numpy list indexing to move specific indexes from the submission
+        eval_prob_list = np.zeros(len(cl.CLASS_LIST), dtype=np.float32)
+        eval_prob_list[eval_class_ids] = np.array(original_prob_dist)[original_class_ids]
+
+        # Normalize any distribution with a total greater than 1 (no all 1 distributions)
+        total_prob = np.sum(eval_prob_list)
+        if total_prob > 1:
+            eval_prob_list /= total_prob
+
+        # return the updated probability distribution as a list
+        return eval_prob_list.tolist()
+
 
     def evaluate(self):
         # Open the submission & attempt to perform evaluation
@@ -190,7 +224,7 @@ class Evaluator:
         # Get the ground_truth_data by using the environment fields in
         # results_data
         self._validate_environment(results_data)
-        Evaluator._check_results_format(results_data)
+        Evaluator._format_results_data(results_data)
         ground_truth_data_all = []
         for number in results_data['environment_details']['numbers']:
             with open(
