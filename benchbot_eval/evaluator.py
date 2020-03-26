@@ -4,6 +4,7 @@ import json
 import os
 import pprint
 import numpy as np
+import warnings
 from .cdq3d import CDQ3D
 from . import class_list as cl
 
@@ -166,8 +167,7 @@ class Evaluator:
         if 'detections' not in result_data:
             raise KeyError('Results dictionary does not have a "detections" key')
         if 'class_list' not in result_data:
-            # TODO Should change this to a warning rather than a print
-            print('Warning! class_list not provided in result_data, assuming default class list')
+            warnings.warn('class_list not provided in result_data, assuming default class list')
             result_class_list = cl.CLASS_LIST
         else:
             result_class_list = result_data['class_list']
