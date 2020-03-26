@@ -6,6 +6,7 @@ from scipy.stats import gmean
 from . import iou_tools
 
 _IOU_TOOL = iou_tools.IoU()
+_STATE_IDS = {"added": 0, "removed": 1, "constant": 2}
 
 # NOTE For now we will ignore the concept of foreground and background quality in favor of
 # spatial quality being just the IoU of a detection.
@@ -17,7 +18,7 @@ class CDQ3D(object):
     Based upon the PDQ system found below
     https://github.com/david2611/pdq_evaluation
     """
-    def __init__(self):
+    def __init__(self, scd_mode=False):
         """
         Initialisation function for Semantic SLAM evaluator, classical detection quality 3D (CDQ3D).
         """
@@ -29,8 +30,8 @@ class CDQ3D(object):
         self._tot_TP = 0
         self._tot_FP = 0
         self._tot_FN = 0
-        self._det_evals = []
-        self._gt_evals = []
+        self._tot_state_quality = 0.0
+        self.scd_mode = scd_mode
 
     def reset(self):
         """
@@ -44,8 +45,7 @@ class CDQ3D(object):
         self._tot_TP = 0
         self._tot_FP = 0
         self._tot_FN = 0
-        self._det_evals = []
-        self._gt_evals = []
+        self._tot_state_quality = 0.0
 
     def add_map_eval(self, gt_instances, det_instances):
         """
@@ -54,7 +54,7 @@ class CDQ3D(object):
         :param det_instances: list of detection dictionaries objects provided for the given map
         :return: None
         """
-        results = _calc_qual_map(gt_instances, det_instances)
+        results = _calc_qual_map(gt_instances, det_instances, self.scd_mode)
         self._tot_overall_quality += results['overall']
         self._tot_spatial_quality += results['spatial']
         self._tot_label_quality += results['label']
@@ -62,8 +62,7 @@ class CDQ3D(object):
         self._tot_TP += results['TP']
         self._tot_FP += results['FP']
         self._tot_FN += results['FN']
-        self._det_evals.append(results['map_det_evals'])
-        self._gt_evals.append(results['map_gt_evals'])
+        self._tot_state_quality += results['state_change']
 
     def get_current_score(self):
         """
@@ -88,9 +87,8 @@ class CDQ3D(object):
         """
         self.reset()
 
-        num_maps = len(param_lists)
         for map_params in param_lists:
-            map_results = _get_map_evals(map_params)
+            map_results = self._get_map_evals(map_params)
             self._tot_overall_quality += map_results['overall']
             self._tot_spatial_quality += map_results['spatial']
             self._tot_label_quality += map_results['label']
@@ -98,8 +96,7 @@ class CDQ3D(object):
             self._tot_TP += map_results['TP']
             self._tot_FP += map_results['FP']
             self._tot_FN += map_results['FN']
-            self._det_evals.append(map_results['map_det_evals'])
-            self._gt_evals.append(map_results['map_gt_evals'])
+            self._tot_state_quality += map_results['state_change']
 
         return self.get_current_score()
 
@@ -156,31 +153,30 @@ class CDQ3D(object):
         """
         return self._tot_TP, self._tot_FP, self._tot_FN
 
+    def _get_map_evals(self, parameters):
+        """
+        Evaluate the results for a given image
+        :param parameters: tuple containing list of ground-truth dicts and detection dicts
+        :return: results dictionary containing total overall spatial quality, total spatial quality on positively assigned
+        detections, total label quality on positively assigned detections, total foreground spatial quality on positively
+        assigned detections, total background spatial quality on positively assigned detections, number of true positives,
+        number of false positives, number false negatives, detection evaluation summary, and ground-truth evaluation summary
+        for the given image.
+        Format {'overall':<tot_overall_quality>, 'spatial': <tot_tp_spatial_quality>, 'label': <tot_tp_label_quality>,
+        'TP': <num_true_positives>, 'FP': <num_false_positives>, 'FN': <num_false_positives>,
+        'img_det_evals':<detection_evaluation_summary>, 'img_gt_evals':<ground-truth_evaluation_summary>}
+        """
+        gt_instances, det_instances = parameters
+        results = _calc_qual_map(gt_instances, det_instances, self.scd_mode)
+        return results
 
-def _get_map_evals(parameters):
-    """
-    Evaluate the results for a given image
-    :param parameters: tuple containing list of ground-truth dicts and detection dicts
-    :return: results dictionary containing total overall spatial quality, total spatial quality on positively assigned
-    detections, total label quality on positively assigned detections, total foreground spatial quality on positively
-    assigned detections, total background spatial quality on positively assigned detections, number of true positives,
-    number of false positives, number false negatives, detection evaluation summary, and ground-truth evaluation summary
-    for the given image.
-    Format {'overall':<tot_overall_quality>, 'spatial': <tot_tp_spatial_quality>, 'label': <tot_tp_label_quality>,
-    'TP': <num_true_positives>, 'FP': <num_false_positives>, 'FN': <num_false_positives>,
-    'img_det_evals':<detection_evaluation_summary>, 'img_gt_evals':<ground-truth_evaluation_summary>}
-    """
-    gt_instances, det_instances = parameters
-    results = _calc_qual_map(gt_instances, det_instances)
-    return results
 
-
-def _vectorize_map_gts(gt_instances):
+def _vectorize_map_gts(gt_instances, scd_mode):
     """
     Vectorizes the required elements for all ground-truth dicts as necessary for a given map.
-    These elements are the ground-truth boxes and the class ids
+    These elements are the ground-truth boxes, class ids and state ids if given (0: added, 1: removed, 2: constant)
     :param gt_instances: list of all ground-truth dicts for a given image
-    :return: (gt_boxes, gt_labels).
+    :return: (gt_boxes, gt_labels, gt_state_ids).
     gt_boxes: g length list of box centroids and extents stored as dictionaries for each of the g ground-truth dicts
     (dictionary format: {'centroid': <centroid>, 'extent': <extent>})
     gt_labels: g, numpy array of class labels as an integer for each of the g ground-truth dicts
@@ -188,24 +184,36 @@ def _vectorize_map_gts(gt_instances):
     gt_labels = np.array([gt_instance['class_id'] for gt_instance in gt_instances], dtype=np.int)        # g,
     gt_boxes = [{"centroid": gt_instance['centroid'], "extent": gt_instance["extent"]}
                 for gt_instance in gt_instances]                                                         # g,
+    if scd_mode:
+        gt_state_ids = [_STATE_IDS[gt_instance["state"]] for gt_instance in gt_instances]
+    else:
+        gt_state_ids = [-1 for gt_instance in gt_instances]
+    return gt_boxes, gt_labels, gt_state_ids
 
-    return gt_boxes, gt_labels
 
-
-def _vectorize_map_dets(det_instances):
+def _vectorize_map_dets(det_instances, scd_mode):
     """
     Vectorize the required elements for all detection dicts as necessary for a given map.
-    These elements are the detection boxes and the probability distributions.
+    These elements are the detection boxes, the probability distributions for the labels, and the probability
+    distribution of the state change estimations (if provided).
     :param det_instances: list of all detection dicts for a given image.
-    :return: (det_boxes, det_prob_mat)
+    :return: (det_boxes, det_label_prob_mat, det_)
     det_boxes: d length list of box centroids and extents stored as dictionaries for each of the d detections
     (dictionary format: {'centroid': <centroid>, 'extent': <extent>})
     det_label_prob_mat: d x c numpy array of label probability scores across all c classes for each of the d detections
+    det_
     """
-    det_prob_mat = np.stack([np.array(det_instance['prob_dist']) for det_instance in det_instances], axis=0)  # d x c
+    det_label_prob_mat = np.stack([np.array(det_instance['prob_dist']) for det_instance in det_instances], axis=0)  # d x c
     det_boxes = [{"centroid": det_instance['centroid'], "extent": det_instance["extent"]}
                  for det_instance in det_instances]                                                           # d,
-    return det_boxes, det_prob_mat
+    if scd_mode:
+        # Currently assuming that format of state_probs is 3 dimensional
+        # format [<prob_added>, <prob_removed>, <prob_same>]
+        det_state_prob_mat = np.stack([np.array(det_instance['state_probs'])
+                                       for det_instance in det_instances], axis=0)                            # d x 3
+    else:
+        det_state_prob_mat = np.ones((len(det_instances), 3)) * -1
+    return det_boxes, det_label_prob_mat, det_state_prob_mat
 
 
 def _calc_spatial_qual(gt_boxes, det_boxes):
@@ -237,8 +245,24 @@ def _calc_label_qual(gt_label_vec, det_prob_mat):
     label_qual_mat = det_prob_mat[:, gt_label_vec].T.astype(np.float32)     # g x d
     return label_qual_mat
 
+def _calc_state_change_qual(gt_state_vec, det_state_prob_mat):
+    """
+    Calculate the label quality for all detections on all ground truth objects for a given image.
+    :param gt_state_vec:  g, numpy array containing the state label as an integer for each object.
+    (0 = added, 1 = removed, 2 = same)
+    :param det_state_prob_mat: d x 3 numpy array of label probability scores across all 3 states
+    for each of the d detections.
+    :return: state_qual_mat: g x d state quality score between zero and one for each possible combination of
+    g ground truth objects and d detections.
+    """
+    # if we are not doing scd we return None
+    if np.max(gt_state_vec) == -1:
+        return None
+    state_qual_mat = det_state_prob_mat[:, gt_state_vec].T.astype(np.float32)     # g x d
+    return state_qual_mat
 
-def _calc_overall_qual(label_qual, spatial_qual):
+
+def _calc_overall_qual(label_qual, spatial_qual, state_qual_mat):
     """
     Calculate the overall quality for all detections on all ground truth objects for a given image
     :param label_qual: g x d label quality score between zero and one for each possible combination of
@@ -248,9 +272,12 @@ def _calc_overall_qual(label_qual, spatial_qual):
     :return: overall_qual_mat: g x d overall label quality between zero and one for each possible combination of
     g ground truth objects and d detections.
     """
-    combined_mat = np.dstack((label_qual, spatial_qual))
+    if state_qual_mat is None:
+        combined_mat = np.dstack((label_qual, spatial_qual))
+    else:
+        combined_mat = np.dstack((label_qual, spatial_qual, state_qual_mat))
 
-    # Calculate the geometric mean between label quality and spatial quality.
+    # Calculate the geometric mean between all qualities
     # Note we ignore divide by zero warnings here for log(0) calculations internally.
     with np.errstate(divide='ignore'):
         overall_qual_mat = gmean(combined_mat, axis=2)
@@ -258,7 +285,7 @@ def _calc_overall_qual(label_qual, spatial_qual):
     return overall_qual_mat
 
 
-def _gen_cost_tables(gt_instances, det_instances):
+def _gen_cost_tables(gt_instances, det_instances, scd_mode):
     """
     Generate the cost tables containing the cost values (1 - quality) for each combination of ground truth objects and
     detections within a given map.
@@ -274,27 +301,33 @@ def _gen_cost_tables(gt_instances, det_instances):
     overall_cost_table = np.ones((n_pairs, n_pairs), dtype=np.float32)
     spatial_cost_table = np.ones((n_pairs, n_pairs), dtype=np.float32)
     label_cost_table = np.ones((n_pairs, n_pairs), dtype=np.float32)
+    state_cost_table = np.ones((n_pairs, n_pairs), dtype=np.float32)
 
     # Generate all the matrices needed for calculations
-    gt_boxes, gt_labels = _vectorize_map_gts(gt_instances)
-    det_boxes, det_label_prob_mat = _vectorize_map_dets(det_instances)
+    gt_boxes, gt_labels, gt_state_ids = _vectorize_map_gts(gt_instances, scd_mode)
+    det_boxes, det_label_prob_mat, det_state_prob_mat = _vectorize_map_dets(det_instances, scd_mode)
 
     # Calculate spatial and label qualities
     label_qual_mat = _calc_label_qual(gt_labels, det_label_prob_mat)
     spatial_qual = _calc_spatial_qual(gt_boxes, det_boxes)
+    state_change_qual = _calc_state_change_qual(gt_state_ids, det_state_prob_mat)
 
     # Generate the overall cost table (1 - overall quality)
     overall_cost_table[:len(gt_instances), :len(det_instances)] -= _calc_overall_qual(label_qual_mat,
-                                                                                      spatial_qual)
+                                                                                      spatial_qual,
+                                                                                      state_change_qual)
 
     # Generate the spatial and label cost tables
     spatial_cost_table[:len(gt_instances), :len(det_instances)] -= spatial_qual
     label_cost_table[:len(gt_instances), :len(det_instances)] -= label_qual_mat
+    if scd_mode:
+        state_cost_table[:len(gt_instances), :len(det_instances)] -= state_change_qual
 
-    return {'overall': overall_cost_table, 'spatial': spatial_cost_table, 'label': label_cost_table}
+    return {'overall': overall_cost_table, 'spatial': spatial_cost_table, 'label': label_cost_table,
+            'state': state_cost_table}
 
 
-def _calc_qual_map(gt_instances, det_instances):
+def _calc_qual_map(gt_instances, det_instances, scd_mode):
     """
     Calculates the sum of qualities for the best matches between ground truth objects and detections for a map.
     Each ground truth object can only be matched to a single detection and vice versa as an object-detection pair.
@@ -317,11 +350,7 @@ def _calc_qual_map(gt_instances, det_instances):
     'map_det_evals':<detection_evaluation_summary>, 'map_gt_evals':<ground-truth_evaluation_summary>}
     """
 
-    # Record the full evaluation details for every match
-    map_det_evals = []
-    map_gt_evals = []
     tot_fp_cost = 0.0
-
     # if there are no detections or gt instances respectively the quality is zero
     if len(gt_instances) == 0 or len(det_instances) == 0:
         if len(det_instances) > 0:
@@ -329,21 +358,12 @@ def _calc_qual_map(gt_instances, det_instances):
             # NOTE background class is the final class in the distribution which is ignored when calculating FP cost
             tot_fp_cost = np.sum([np.max(det_instance['prob_dist'][:-1]) for det_instance in det_instances])
 
-            map_det_evals = [{"det_id": idx, "gt_id": None, "ignore": False, "matched": False,
-                              "overall": 0.0, "spatial": 0.0, "label": 0.0, "correct_class": None}
-                             for idx in range(len(det_instances))]
-
-        elif len(gt_instances) > 0:
-            map_gt_evals = [{"det_id": None, "gt_id": idx, "ignore": False, "matched": False,
-                             "overall": 0.0, "spatial": 0.0, "label": 0.0, "correct_class": gt_instance.class_label}
-                            for idx, gt_instance in enumerate(gt_instances)]
-
         return {'overall': 0.0, 'spatial': 0.0, 'label': 0.0, 'fp_cost': tot_fp_cost, 'TP': 0, 'FP': len(det_instances),
-                'FN': len(gt_instances), "map_det_evals": map_det_evals, "map_gt_evals": map_gt_evals}
+                'FN': len(gt_instances)}
 
     # For each possible pairing, calculate the quality of that pairing and convert it to a cost
     # to enable use of the Hungarian algorithm.
-    cost_tables = _gen_cost_tables(gt_instances, det_instances)
+    cost_tables = _gen_cost_tables(gt_instances, det_instances, scd_mode)
 
     # Use the Hungarian algorithm with the cost table to find the best match between ground truth
     # object and detection (lowest overall cost representing highest overall pairwise quality)
@@ -353,6 +373,7 @@ def _calc_qual_map(gt_instances, det_instances):
     overall_quality_table = 1 - cost_tables['overall']
     spatial_quality_table = 1 - cost_tables['spatial']
     label_quality_table = 1 - cost_tables['label']
+    state_change_quality_table = 1 - cost_tables['state']
 
     # Go through all optimal assignments and summarize all pairwise statistics
     # Calculate the number of TPs, FPs, and FNs for the image during the process
@@ -363,35 +384,17 @@ def _calc_qual_map(gt_instances, det_instances):
 
     for match_idx, match in enumerate(zip(row_idxs, col_idxs)):
         row_id, col_id = match
-        det_eval_dict = {"det_id": int(col_id), "gt_id": int(row_id), "matched": True, "ignore": False,
-                         "overall": float(overall_quality_table[row_id, col_id]),
-                         "spatial": float(spatial_quality_table[row_id, col_id]),
-                         "label": float(label_quality_table[row_id, col_id]),
-                         "correct_class": None}
-        gt_eval_dict = det_eval_dict.copy()
         # Handle "true positives"
         if overall_quality_table[row_id, col_id] > 0:
-            det_eval_dict["correct_class"] = gt_instances[row_id]["class_id"]
-            gt_eval_dict["correct_class"] = gt_instances[row_id]["class_id"]
             true_positives += 1
-            map_det_evals.append(det_eval_dict)
-            map_gt_evals.append(gt_eval_dict)
         else:
             # Handle false negatives
             if row_id < len(gt_instances):
-                gt_eval_dict["correct_class"] = gt_instances[row_id]["class_id"]
-                gt_eval_dict["det_id"] = None
-                gt_eval_dict["matched"] = False
                 false_negatives += 1
-                map_gt_evals.append(gt_eval_dict)
-
             # Handle false positives
             if col_id < len(det_instances):
-                det_eval_dict["gt_id"] = None
-                det_eval_dict["matched"] = False
                 false_positives += 1
                 false_positive_idxs.append(col_id)
-                map_det_evals.append(det_eval_dict)
 
     # Calculate the sum of quality at the best matching pairs to calculate total qualities for the image
     tot_overall_img_quality = np.sum(overall_quality_table[row_idxs, col_idxs])
@@ -400,22 +403,24 @@ def _calc_qual_map(gt_instances, det_instances):
     # detections and therefore no TP when this is the case.
     spatial_quality_table[overall_quality_table == 0] = 0.0
     label_quality_table[overall_quality_table == 0] = 0.0
+    state_change_quality_table[overall_quality_table == 0] = 0.0
 
     # Calculate the sum of spatial and label qualities only for TP samples
     tot_tp_spatial_quality = np.sum(spatial_quality_table[row_idxs, col_idxs])
     tot_tp_label_quality = np.sum(label_quality_table[row_idxs, col_idxs])
-
-    # Sort the evaluation details to match the order of the detections and ground truths
-    img_det_eval_idxs = [det_eval_dict["det_id"] for det_eval_dict in map_det_evals]
-    img_gt_eval_idxs = [gt_eval_dict["gt_id"] for gt_eval_dict in map_gt_evals]
-    map_det_evals = [map_det_evals[idx] for idx in np.argsort(img_det_eval_idxs)]
-    map_gt_evals = [map_gt_evals[idx] for idx in np.argsort(img_gt_eval_idxs)]
+    tot_tp_state_change_quality = np.sum(state_change_quality_table[row_idxs, col_idxs])
 
     # Calculate the penalty for assigning a high label probability to false positives
     # NOTE background class is final class in the class list and is not considered
-    tot_fp_cost = np.sum([np.max(det_instances[i]['prob_dist'][:-1]) for i in false_positive_idxs])
+    # This will be the geometric mean between the maximum label quality and maximum state estimated (ignore same)
+    if scd_mode:
+        tot_fp_cost = np.sum([gmean([np.max(det_instances[i]['prob_dist'][:-1]),
+                                     np.max(det_instances[i]['state_probs'][:-1])])
+                              for i in false_positive_idxs])
+    else:
+        tot_fp_cost = np.sum([np.max(det_instances[i]['prob_dist'][:-1]) for i in false_positive_idxs])
 
     return {'overall': tot_overall_img_quality, 'spatial': tot_tp_spatial_quality, 'label': tot_tp_label_quality,
             'fp_cost': tot_fp_cost, 'TP': true_positives, 'FP': false_positives, 'FN': false_negatives,
-            'map_gt_evals': map_gt_evals, 'map_det_evals': map_det_evals}
+            'state_change': tot_tp_state_change_quality}
 
