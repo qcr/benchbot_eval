@@ -71,6 +71,8 @@ class CDQ3D(object):
         (average pairwise quality over the number of object-detection pairs observed with FPs weighted by confidence).
         """
         denominator = self._tot_TP + self._tot_fp_cost + self._tot_FN
+        if denominator == 0:
+            return 0.0
         return self._tot_overall_quality/denominator
 
     def score(self, param_lists):
@@ -120,6 +122,17 @@ class CDQ3D(object):
         """
         if self._tot_TP > 0.0:
             return self._tot_label_quality / float(self._tot_TP)
+        return 0.0
+
+    def get_avg_state_score(self):
+        """
+        Get the average state quality score for all assigned detections in all maps analysed at the current time.
+        Note that this is averaged over the number of assigned detections (TPs) and not the full set of TPs, FPs,
+        and FNs like the final Semantic SLAM CDQ3D score.
+        :return: average label quality of every assigned detection
+        """
+        if self._tot_TP > 0.0:
+            return self._tot_state_quality / float(self._tot_TP)
         return 0.0
 
     def get_avg_overall_quality_score(self):
@@ -359,7 +372,7 @@ def _calc_qual_map(gt_instances, det_instances, scd_mode):
             tot_fp_cost = np.sum([np.max(det_instance['prob_dist'][:-1]) for det_instance in det_instances])
 
         return {'overall': 0.0, 'spatial': 0.0, 'label': 0.0, 'fp_cost': tot_fp_cost, 'TP': 0, 'FP': len(det_instances),
-                'FN': len(gt_instances)}
+                'FN': len(gt_instances), 'state_change': 0.0}
 
     # For each possible pairing, calculate the quality of that pairing and convert it to a cost
     # to enable use of the Hungarian algorithm.
