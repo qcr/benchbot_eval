@@ -76,8 +76,10 @@ class Evaluator:
                       'avg_spatial': evaluator.get_avg_spatial_score(),
                       'avg_fp_quality': evaluator.get_avg_fp_score()}
 
-        # Taking overall score average across removed and added for now
-        avg_scores = {key: np.mean(scores_rem[key], scores_add[key]) for key in scores_rem}
+        # Taking weighted score averages across removed and added for now
+        # Calculate the weights for removed and added based upon the number of GT objects added or removed
+        weights = np.array([len(gt_dicts_add), len(gt_dicts_rem)])/np.sum(len(gt_dicts_add), len(gt_dicts_rem))
+        avg_scores = {key: np.average([scores_rem[key], scores_add[key]], weights) for key in scores_rem}
 
         return {
             'task_details': results_data['task_details'],
