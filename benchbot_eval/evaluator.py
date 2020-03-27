@@ -40,6 +40,7 @@ class Evaluator:
 
         # Create a ground-truth difference map finding all added and removed objects
         # Note that we must add a flag saying whether object was added or removed
+        
         # Removed objects
         gt_diff_dicts = [{**gt_dict, 'state': 'removed'} for gt_dict in gt_dicts_1 if gt_dict not in gt_dicts_2]
         # Added objects
@@ -55,7 +56,8 @@ class Evaluator:
                   'avg_pairwise': evaluator.get_avg_overall_quality_score(),
                   'avg_label': evaluator.get_avg_label_score(),
                   'avg_spatial': evaluator.get_avg_spatial_score(),
-                  'avg_fp_quality': evaluator.get_avg_fp_score()}
+                  'avg_fp_quality': evaluator.get_avg_fp_score(),
+                  'avg_state_quality': evaluator.get_avg_state_score()}
 
         return {
             'task_details': results_data['task_details'],
