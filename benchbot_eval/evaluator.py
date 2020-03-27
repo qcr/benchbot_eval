@@ -33,58 +33,34 @@ class Evaluator:
 
     @staticmethod
     def _evaluate_scd(results_data, ground_truth1_data, ground_truth2_data):
-        # Takes in results data from a BenchBot submission, evaluates the
-        # result using the ground truth data for env 1 and env 2, & then spits out a dict of scores data
+        # Takes in results data from a BenchBot submission and evaluates the difference map to results
 
         gt_dicts_1 = ground_truth1_data['objects']
         gt_dicts_2 = ground_truth2_data['objects']
 
-        # Establish ground-truth scene change info from two ground-truth files
-        # removed (rem) and added (add)
-        # NOTE Currently assuming the gt dict will be the same across the two
-        gt_dicts_rem = [
-            gt_dict for gt_dict in gt_dicts_1 if gt_dict not in gt_dicts_2
-        ]
-        gt_dicts_add = [
-            gt_dict for gt_dict in gt_dicts_2 if gt_dict not in gt_dicts_1
-        ]
+        # Create a ground-truth difference map finding all added and removed objects
+        # Note that we must add a flag saying whether object was added or removed
+        # Removed objects
+        gt_diff_dicts = [{**gt_dict, 'state': 'removed'} for gt_dict in gt_dicts_1 if gt_dict not in gt_dicts_2]
+        # Added objects
+        gt_diff_dicts += [{**gt_dict, 'state': 'added'} for gt_dict in gt_dicts_2 if gt_dict not in gt_dicts_1]
 
-        # Extract the added and removed detections from the result data
-        det_dicts_all = results_data['detections']
-        det_dicts_rem = [
-            det_dict for det_dict in det_dicts_all
-            if 'changed_state' in det_dict.keys() and
-            det_dict['changed_state'] == 'removed'
-        ]
-        det_dicts_add = [
-            det_dict for det_dict in det_dicts_all
-            if 'changed_state' in det_dict.keys() and
-            det_dict['changed_state'] == 'added'
-        ]
+        # Extract the result data dicts
+        det_dicts = results_data['detections']
 
-        evaluator = CDQ3D()
+        evaluator = CDQ3D(scd_mode=True)
 
-        # Get the CDQ3D scores for the removed and added maps
-        scores_rem = {'CDQ3D': evaluator.score([(gt_dicts_rem, det_dicts_rem)]),
-                      'avg_pairwise': evaluator.get_avg_overall_quality_score(),
-                      'avg_label': evaluator.get_avg_label_score(),
-                      'avg_spatial': evaluator.get_avg_spatial_score(),
-                      'avg_fp_quality': evaluator.get_avg_fp_score()}
-        scores_add = {'CDQ3D': evaluator.score([(gt_dicts_add, det_dicts_add)]),
-                      'avg_pairwise': evaluator.get_avg_overall_quality_score(),
-                      'avg_label': evaluator.get_avg_label_score(),
-                      'avg_spatial': evaluator.get_avg_spatial_score(),
-                      'avg_fp_quality': evaluator.get_avg_fp_score()}
-
-        # Taking weighted score averages across removed and added for now
-        # Calculate the weights for removed and added based upon the number of GT objects added or removed
-        weights = np.array([len(gt_dicts_add), len(gt_dicts_rem)])/np.sum(len(gt_dicts_add), len(gt_dicts_rem))
-        avg_scores = {key: np.average([scores_rem[key], scores_add[key]], weights=weights) for key in scores_rem}
+        # Get the CDQ3D scores for the SCD result
+        scores = {'CDQ3D': evaluator.score([(gt_diff_dicts, det_dicts)]),
+                  'avg_pairwise': evaluator.get_avg_overall_quality_score(),
+                  'avg_label': evaluator.get_avg_label_score(),
+                  'avg_spatial': evaluator.get_avg_spatial_score(),
+                  'avg_fp_quality': evaluator.get_avg_fp_score()}
 
         return {
             'task_details': results_data['task_details'],
             'environment_details': results_data['environment_details'],
-            'scores': avg_scores
+            'scores': scores
         }
 
     @staticmethod
