@@ -5,17 +5,13 @@ import os
 import pprint
 import numpy as np
 import warnings
-from .cdq3d import CDQ3D
+from .omq import OMQ
 from . import class_list as cl
 
 
 class Evaluator:
     _TYPE_SEMANTIC_SLAM = 'semantic_slam'
     _TYPE_SCD = 'scd'
-    _IOU_THRESHOLDS = [
-        0.25, 0.3, 0.35, 0.4, 0.45, 0.5, 0.55, 0.6, 0.65, 0.7, 0.75, 0.8, 0.85,
-        0.9, 0.95
-    ]
 
     def __init__(self, results_filename, ground_truth_dir, scores_filename):
         # Confirm we have a valid submission file, & ground truth directory
@@ -47,12 +43,12 @@ class Evaluator:
         gt_diff_dicts += [{**gt_dict, 'state': 'added'} for gt_dict in gt_dicts_2 if gt_dict not in gt_dicts_1]
 
         # Extract the result data dicts
-        det_dicts = results_data['detections']
+        det_dicts = results_data['proposals']
 
-        evaluator = CDQ3D(scd_mode=True)
+        evaluator = OMQ(scd_mode=True)
 
-        # Get the CDQ3D scores for the SCD result
-        scores = {'CDQ3D': evaluator.score([(gt_diff_dicts, det_dicts)]),
+        # Get the OMQ scores for the SCD result
+        scores = {'OMQ': evaluator.score([(gt_diff_dicts, det_dicts)]),
                   'avg_pairwise': evaluator.get_avg_overall_quality_score(),
                   'avg_label': evaluator.get_avg_label_score(),
                   'avg_spatial': evaluator.get_avg_spatial_score(),
@@ -70,15 +66,15 @@ class Evaluator:
         # Takes in results data from a BenchBot submission, evaluates the
         # result using the ground truth data, & then spits out a dict of scores data
 
-        # NOTE currently assume there is a detections field in the results_data and
+        # NOTE currently assume there is a proposals field in the results_data and
         # an objects field in the ground_truth_data
-        det_dicts = results_data['detections']
+        det_dicts = results_data['proposals']
 
         gt_dicts = ground_truth_data['objects']
 
-        evaluator = CDQ3D()
+        evaluator = OMQ()
 
-        scores = {'CDQ3D': evaluator.score([(gt_dicts, det_dicts)]),
+        scores = {'OMQ': evaluator.score([(gt_dicts, det_dicts)]),
                   'avg_pairwise': evaluator.get_avg_overall_quality_score(),
                   'avg_label': evaluator.get_avg_label_score(),
                   'avg_spatial': evaluator.get_avg_spatial_score(),
@@ -144,8 +140,8 @@ class Evaluator:
 
     @staticmethod
     def _format_results_data(result_data):
-        if 'detections' not in result_data:
-            raise KeyError('Results dictionary does not have a "detections" key')
+        if 'proposals' not in result_data:
+            raise KeyError('Results dictionary does not have a "proposals" key')
         if 'class_list' not in result_data:
             warnings.warn('class_list not provided in result_data, assuming default class list')
             result_class_list = cl.CLASS_LIST
@@ -153,20 +149,20 @@ class Evaluator:
             result_class_list = result_data['class_list']
 
         # check result detections have a prob_dist key and content is formatted correctly
-        for det_id, det_dict in enumerate(result_data['detections']):
-            if 'prob_dist' not in det_dict.keys():
-                raise KeyError('Detection {} does not have a "prob_dist" key'.format(det_id))
+        for prop_id, prop_dict in enumerate(result_data['proposals']):
+            if 'prob_dist' not in prop_dict.keys():
+                raise KeyError('Proposal {} does not have a "prob_dist" key'.format(prop_id))
 
-            if len(det_dict['prob_dist']) != len(result_class_list):
-                raise ValueError('Probability distributioin for detection {} has incorrect size.\n'
+            if len(prop_dict['prob_dist']) != len(result_class_list):
+                raise ValueError('Probability distributioin for proposal {} has incorrect size.\n'
                                  'Is {} but should match your defined class list size ({})\n'
                                  'Note, the final class is background.'
-                                 ''.format(det_id, len(det_dict['prob_dist']), len(result_class_list)))
+                                 ''.format(prop_id, len(prop_dict['prob_dist']), len(result_class_list)))
 
             # Format the probability distribution to match the class list order used for evaluation
             # Work out which of the submission classes correspond to which of our classes
 
-            det_dict['prob_dist'] = Evaluator._format_prob_dist(result_class_list, det_dict['prob_dist'])
+            prop_dict['prob_dist'] = Evaluator._format_prob_dist(result_class_list, prop_dict['prob_dist'])
 
     @staticmethod
     def _format_prob_dist(original_class_list, original_prob_dist):
