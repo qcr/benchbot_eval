@@ -30,13 +30,13 @@ my_evaluator.evaluate()
 ```
 
 This prints the final scores to the screen and saves them to the named file:
-- `results_filename`: points to the JSON file with the output from your experiment (in the format [described below](##results-format))
+- `results_filename`: points to the JSON file with the output from your experiment (in the format [described below](#results-format))
 - `ground_truth_folder`: the directory containing the relevant environment ground truth JSON files
 - `save_file`: is where final scores are to be saved
 
 ## Results format
 
-Results must be presented in a JSON file containing a certain named fields. Some slight differences apply for scene change detection tasks, which are described in more detail [further down](#scene-change-detection-format-differences).
+Results must be presented in a JSON file containing a certain named fields. Some slight differences apply for scene change detection tasks, which are described in more detail [further down](#format-differences-for-scene-change-detection-tasks).
 
 An example of the basic proposed map results format is as follows:
 ```
@@ -180,7 +180,7 @@ As with semantic SLAM tasks, results must report the class label and cuboid loca
 
 A probability distribution in the `"state_probs"` field must also be provided giving the confidence that an object has been added, removed, or remained the same.
 
-Evaluation is given as a variation of the OMQ measure described [above](####object-map-quality-omq).
+Evaluation is given as a variation of the OMQ measure described [above](#object-map-quality-omq).
 
 Differences in how the SCD-variant are calculated are given below.
 
