@@ -29,48 +29,51 @@ class Evaluator:
 
     @staticmethod
     def _evaluate_scd(results_data, ground_truth1_data, ground_truth2_data):
-        # Takes in results data from a BenchBot submission and evaluates the difference map to results
+        # Takes in results data from a BenchBot submission and evaluates the
+        # difference map to results
 
-        gt_dicts_1 = ground_truth1_data['objects']
-        gt_dicts_2 = ground_truth2_data['objects']
+        # Use the ground truth object-based semantic maps for each scene to
+        # derive the ground truth scene change semantic map (use empty lists to
+        # handle missing fields just in case)
+        # NOTE: ground truth uses a flag to determine change state rather than
+        # the distribution provided in the submission results
+        gt_objects_1 = (ground_truth1_data['objects']
+                        if 'objects' in ground_truth1_data else [])
+        gt_objects_2 = (ground_truth2_data['objects']
+                        if 'objects' in ground_truth2_data else [])
+        gt_changes = [{
+            **o, 'state': 'removed'
+        } for o in gt_objects_1 if o not in gt_objects_2]
+        gt_changes += [{
+            **o, 'state': 'added'
+        } for o in gt_objects_2 if o not in gt_objects_1]
 
-        # Create a ground-truth difference map finding all added and removed objects
-        # Note that we must add a flag saying whether object was added or removed
-
-        # Removed objects
-        gt_diff_dicts = [{
-            **gt_dict, 'state': 'removed'
-        } for gt_dict in gt_dicts_1 if gt_dict not in gt_dicts_2]
-        # Added objects
-        gt_diff_dicts += [{
-            **gt_dict, 'state': 'added'
-        } for gt_dict in gt_dicts_2 if gt_dict not in gt_dicts_1]
-
-        # Extract the result data dicts
-        det_dicts = results_data['proposals']
-
+        # Grab an evaluator instance, & use it to return some results
         evaluator = OMQ(scd_mode=True)
-
-        # Get the OMQ scores for the SCD result
-        scores = {
-            'OMQ': evaluator.score([(gt_diff_dicts, det_dicts)]),
-            'avg_pairwise': evaluator.get_avg_overall_quality_score(),
-            'avg_label': evaluator.get_avg_label_score(),
-            'avg_spatial': evaluator.get_avg_spatial_score(),
-            'avg_fp_quality': evaluator.get_avg_fp_score(),
-            'avg_state_quality': evaluator.get_avg_state_score()
-        }
-
         return {
             'task_details': results_data['task_details'],
             'environment_details': results_data['environment_details'],
-            'scores': scores
+            'scores': {
+                'OMQ':
+                    evaluator.score([(gt_changes, results_data['objects'])]),
+                'avg_pairwise':
+                    evaluator.get_avg_overall_quality_score(),
+                'avg_label':
+                    evaluator.get_avg_label_score(),
+                'avg_spatial':
+                    evaluator.get_avg_spatial_score(),
+                'avg_fp_quality':
+                    evaluator.get_avg_fp_score(),
+                'avg_state_quality':
+                    evaluator.get_avg_state_score()
+            }
         }
 
     @staticmethod
     def _evaluate_semantic_slam(results_data, ground_truth_data):
         # Takes in results data from a BenchBot submission, evaluates the
-        # result using the ground truth data, & then spits out a dict of scores data
+        # result using the ground truth data, & then spits out a dict of scores
+        # data
 
         # Get both sets of objects (we should have handled missing fields well
         # & truly by now, but it can't hurt just to use empty lists if no
