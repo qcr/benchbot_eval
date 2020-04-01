@@ -36,11 +36,15 @@ class Evaluator:
 
         # Create a ground-truth difference map finding all added and removed objects
         # Note that we must add a flag saying whether object was added or removed
-        
+
         # Removed objects
-        gt_diff_dicts = [{**gt_dict, 'state': 'removed'} for gt_dict in gt_dicts_1 if gt_dict not in gt_dicts_2]
+        gt_diff_dicts = [{
+            **gt_dict, 'state': 'removed'
+        } for gt_dict in gt_dicts_1 if gt_dict not in gt_dicts_2]
         # Added objects
-        gt_diff_dicts += [{**gt_dict, 'state': 'added'} for gt_dict in gt_dicts_2 if gt_dict not in gt_dicts_1]
+        gt_diff_dicts += [{
+            **gt_dict, 'state': 'added'
+        } for gt_dict in gt_dicts_2 if gt_dict not in gt_dicts_1]
 
         # Extract the result data dicts
         det_dicts = results_data['proposals']
@@ -48,12 +52,14 @@ class Evaluator:
         evaluator = OMQ(scd_mode=True)
 
         # Get the OMQ scores for the SCD result
-        scores = {'OMQ': evaluator.score([(gt_diff_dicts, det_dicts)]),
-                  'avg_pairwise': evaluator.get_avg_overall_quality_score(),
-                  'avg_label': evaluator.get_avg_label_score(),
-                  'avg_spatial': evaluator.get_avg_spatial_score(),
-                  'avg_fp_quality': evaluator.get_avg_fp_score(),
-                  'avg_state_quality': evaluator.get_avg_state_score()}
+        scores = {
+            'OMQ': evaluator.score([(gt_diff_dicts, det_dicts)]),
+            'avg_pairwise': evaluator.get_avg_overall_quality_score(),
+            'avg_label': evaluator.get_avg_label_score(),
+            'avg_spatial': evaluator.get_avg_spatial_score(),
+            'avg_fp_quality': evaluator.get_avg_fp_score(),
+            'avg_state_quality': evaluator.get_avg_state_score()
+        }
 
         return {
             'task_details': results_data['task_details'],
@@ -66,24 +72,26 @@ class Evaluator:
         # Takes in results data from a BenchBot submission, evaluates the
         # result using the ground truth data, & then spits out a dict of scores data
 
-        # NOTE currently assume there is a proposals field in the results_data and
-        # an objects field in the ground_truth_data
-        det_dicts = results_data['proposals']
+        # Get both sets of objects (we should have handled missing fields well
+        # & truly by now, but it can't hurt just to use empty lists if no
+        # objects are found)
+        res_objects = (results_data['objects']
+                       if 'objects' in results_data else [])
+        gt_objects = (ground_truth_data['objects']
+                      if 'objects' in ground_truth_data else [])
 
-        gt_dicts = ground_truth_data['objects']
-
+        # Grab an evaluator instance, & use it to return some results
         evaluator = OMQ()
-
-        scores = {'OMQ': evaluator.score([(gt_dicts, det_dicts)]),
-                  'avg_pairwise': evaluator.get_avg_overall_quality_score(),
-                  'avg_label': evaluator.get_avg_label_score(),
-                  'avg_spatial': evaluator.get_avg_spatial_score(),
-                  'avg_fp_quality': evaluator.get_avg_fp_score()}
-
         return {
             'task_details': results_data['task_details'],
             'environment_details': results_data['environment_details'],
-            'scores': scores
+            'scores': {
+                'OMQ': evaluator.score([(gt_objects, res_objects)]),
+                'avg_pairwise': evaluator.get_avg_overall_quality_score(),
+                'avg_label': evaluator.get_avg_label_score(),
+                'avg_spatial': evaluator.get_avg_spatial_score(),
+                'avg_fp_quality': evaluator.get_avg_fp_score()
+            }
         }
 
     def _format_error(self, description):
@@ -140,29 +148,36 @@ class Evaluator:
 
     @staticmethod
     def _format_results_data(result_data):
-        if 'proposals' not in result_data:
-            raise KeyError('Results dictionary does not have a "proposals" key')
-        if 'class_list' not in result_data:
-            warnings.warn('class_list not provided in result_data, assuming default class list')
+        if 'objects' not in result_data:
+            raise KeyError('Results dictionary does not have a "objects" key')
+        if 'class_list' not in result_data or len('class_list') == 0:
+            warnings.warn(
+                'class_list not provided in result_data, assuming default class list'
+            )
             result_class_list = cl.CLASS_LIST
         else:
             result_class_list = result_data['class_list']
 
         # check result detections have a prob_dist key and content is formatted correctly
-        for prop_id, prop_dict in enumerate(result_data['proposals']):
-            if 'prob_dist' not in prop_dict.keys():
-                raise KeyError('Proposal {} does not have a "prob_dist" key'.format(prop_id))
+        for prop_id, prop_dict in enumerate(result_data['objects']):
+            if 'label_probs' not in prop_dict.keys():
+                raise KeyError(
+                    'Proposal {} does not have a "label_probs" key'.format(
+                        prop_id))
 
-            if len(prop_dict['prob_dist']) != len(result_class_list):
-                raise ValueError('Probability distributioin for proposal {} has incorrect size.\n'
-                                 'Is {} but should match your defined class list size ({})\n'
-                                 'Note, the final class is background.'
-                                 ''.format(prop_id, len(prop_dict['prob_dist']), len(result_class_list)))
+            if len(prop_dict['label_probs']) != len(result_class_list):
+                raise ValueError(
+                    'Probability distribution for proposal {} has incorrect size.\n'
+                    'Is {} but should match your defined class list size ({})\n'
+                    'Note, the final class is background.'
+                    ''.format(prop_id, len(prop_dict['label_probs']),
+                              len(result_class_list)))
 
             # Format the probability distribution to match the class list order used for evaluation
             # Work out which of the submission classes correspond to which of our classes
 
-            prop_dict['prob_dist'] = Evaluator._format_prob_dist(result_class_list, prop_dict['prob_dist'])
+            prop_dict['label_probs'] = Evaluator._format_prob_dist(
+                result_class_list, prop_dict['label_probs'])
 
     @staticmethod
     def _format_prob_dist(original_class_list, original_prob_dist):
@@ -177,7 +192,8 @@ class Evaluator:
 
         # Use numpy list indexing to move specific indexes from the submission
         eval_prob_list = np.zeros(len(cl.CLASS_LIST), dtype=np.float32)
-        eval_prob_list[eval_class_ids] = np.array(original_prob_dist)[original_class_ids]
+        eval_prob_list[eval_class_ids] = np.array(
+            original_prob_dist)[original_class_ids]
 
         # Normalize any distribution with a total greater than 1 (no all 1 distributions)
         total_prob = np.sum(eval_prob_list)
@@ -186,7 +202,6 @@ class Evaluator:
 
         # return the updated probability distribution as a list
         return eval_prob_list.tolist()
-
 
     def evaluate(self):
         # Open the submission & attempt to perform evaluation
@@ -208,7 +223,8 @@ class Evaluator:
                         results_data['environment_details']['name'], number),
                     'r') as f:
                 # NOTE should remove format step in time
-                ground_truth_data_all.append(Evaluator._format_gt((json.load(f))))
+                ground_truth_data_all.append(
+                    Evaluator._format_gt((json.load(f))))
 
         # Perform evaluation
         if results_data['task_details']['type'] == Evaluator._TYPE_SCD:

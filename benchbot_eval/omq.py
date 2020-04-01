@@ -19,6 +19,7 @@ class OMQ(object):
     Based upon the probability-based detection quality (PDQ) system found below
     https://github.com/david2611/pdq_evaluation
     """
+
     def __init__(self, scd_mode=False):
         """
         Initialisation function for OMQ evaluator
@@ -76,7 +77,7 @@ class OMQ(object):
         denominator = self._tot_TP + self._tot_fp_cost + self._tot_FN
         if denominator == 0:
             return 0.0
-        return self._tot_overall_quality/denominator
+        return self._tot_overall_quality / denominator
 
     def score(self, param_lists):
         """
@@ -196,9 +197,12 @@ def _vectorize_map_gts(gt_objects, scd_mode):
     g ground-truth dicts. (dictionary format: {'centroid': <centroid>, 'extent': <extent>})
     gt_labels: g, numpy array of class labels as an integer for each of the g ground-truth dicts
     """
-    gt_labels = np.array([gt_obj['class_id'] for gt_obj in gt_objects], dtype=np.int)        # g,
-    gt_cuboids = [{"centroid": gt_obj['centroid'], "extent": gt_obj["extent"]}
-                for gt_obj in gt_objects]                                                         # g,
+    gt_labels = np.array([gt_obj['class_id'] for gt_obj in gt_objects],
+                         dtype=np.int)  # g,
+    gt_cuboids = [{
+        "centroid": gt_obj['centroid'],
+        "extent": gt_obj["extent"]
+    } for gt_obj in gt_objects]  # g,
     if scd_mode:
         gt_state_ids = [_STATE_IDS[gt_obj["state"]] for gt_obj in gt_objects]
     else:
@@ -220,14 +224,20 @@ def _vectorize_map_props(proposed_objects, scd_mode):
     prop_state_probs: p x 3 numpy array of state probability scores across all 3 object states for each of the
     p object proposals. Note this is only relevant for SCD and states are (in order) [added, removed, same].
     """
-    prop_class_probs = np.stack([np.array(prop_obj['prob_dist']) for prop_obj in proposed_objects], axis=0)  # d x c
-    prop_cuboids = [{"centroid": prop_obj['centroid'], "extent": prop_obj["extent"]}
-                 for prop_obj in proposed_objects]                                                           # d,
+    prop_class_probs = np.stack(
+        [np.array(prop_obj['label_probs']) for prop_obj in proposed_objects],
+        axis=0)  # d x c
+    prop_cuboids = [{
+        "centroid": prop_obj['centroid'],
+        "extent": prop_obj["extent"]
+    } for prop_obj in proposed_objects]  # d,
     if scd_mode:
         # Currently assuming that format of state_probs is 3 dimensional
         # format [<prob_added>, <prob_removed>, <prob_same>]
-        prop_state_probs = np.stack([np.array(prop_obj['state_probs'])
-                                       for prop_obj in proposed_objects], axis=0)                            # d x 3
+        prop_state_probs = np.stack([
+            np.array(prop_obj['state_probs']) for prop_obj in proposed_objects
+        ],
+                                    axis=0)  # d x 3
     else:
         prop_state_probs = np.ones((len(proposed_objects), 3)) * -1
     return prop_cuboids, prop_class_probs, prop_state_probs
@@ -243,10 +253,12 @@ def _calc_spatial_qual(gt_cuboids, prop_cuboids):
     g ground truth objects and p object proposals.
     """
     # TODO optimize in some clever way in future rather than two for loops
-    spatial_quality = np.zeros((len(gt_cuboids), len(prop_cuboids)), dtype=np.float)     # g x d
+    spatial_quality = np.zeros((len(gt_cuboids), len(prop_cuboids)),
+                               dtype=np.float)  # g x d
     for gt_id, gt_cub_dict in enumerate(gt_cuboids):
         for prop_id, prop_cub_dict in enumerate(prop_cuboids):
-            spatial_quality[gt_id, prop_id] = _IOU_TOOL.dict_iou(gt_cub_dict, prop_cub_dict)[1]
+            spatial_quality[gt_id, prop_id] = _IOU_TOOL.dict_iou(
+                gt_cub_dict, prop_cub_dict)[1]
 
     return spatial_quality
 
@@ -260,8 +272,10 @@ def _calc_label_qual(gt_labels, prop_class_probs):
     :return: label_qual_mat: g x p label quality score between zero and one for each possible combination of
     g ground truth objects and p object proposals.
     """
-    label_qual_mat = prop_class_probs[:, gt_labels].T.astype(np.float32)     # g x d
+    label_qual_mat = prop_class_probs[:, gt_labels].T.astype(
+        np.float32)  # g x d
     return label_qual_mat
+
 
 def _calc_state_change_qual(gt_state_ids, prop_state_probs):
     """
@@ -276,7 +290,8 @@ def _calc_state_change_qual(gt_state_ids, prop_state_probs):
     # if we are not doing scd we return None
     if np.max(gt_state_ids) == -1:
         return None
-    state_qual_mat = prop_state_probs[:, gt_state_ids].T.astype(np.float32)     # g x d
+    state_qual_mat = prop_state_probs[:, gt_state_ids].T.astype(
+        np.float32)  # g x d
     return state_qual_mat
 
 
@@ -294,7 +309,8 @@ def _calc_overall_qual(label_qual_mat, spatial_qual_mat, state_qual_mat):
     if state_qual_mat is None:
         combined_mat = np.dstack((label_qual_mat, spatial_qual_mat))
     else:
-        combined_mat = np.dstack((label_qual_mat, spatial_qual_mat, state_qual_mat))
+        combined_mat = np.dstack(
+            (label_qual_mat, spatial_qual_mat, state_qual_mat))
 
     # Calculate the geometric mean between all qualities
     # Note we ignore divide by zero warnings here for log(0) calculations internally.
@@ -323,8 +339,10 @@ def _gen_cost_tables(gt_objects, object_proposals, scd_mode):
     state_cost_table = np.ones((n_pairs, n_pairs), dtype=np.float32)
 
     # Generate all the matrices needed for calculations
-    gt_cuboids, gt_labels, gt_state_ids = _vectorize_map_gts(gt_objects, scd_mode)
-    prop_cuboids, prop_class_probs, prop_state_probs = _vectorize_map_props(object_proposals, scd_mode)
+    gt_cuboids, gt_labels, gt_state_ids = _vectorize_map_gts(
+        gt_objects, scd_mode)
+    prop_cuboids, prop_class_probs, prop_state_probs = _vectorize_map_props(
+        object_proposals, scd_mode)
 
     # Calculate spatial, label and state qualities (state only used in SCD)
     label_qual_mat = _calc_label_qual(gt_labels, prop_class_probs)
@@ -332,18 +350,25 @@ def _gen_cost_tables(gt_objects, object_proposals, scd_mode):
     state_change_qual = _calc_state_change_qual(gt_state_ids, prop_state_probs)
 
     # Generate the overall cost table (1 - overall quality)
-    overall_cost_table[:len(gt_objects), :len(object_proposals)] -= _calc_overall_qual(label_qual_mat,
-                                                                                       spatial_qual,
-                                                                                       state_change_qual)
+    overall_cost_table[:len(gt_objects
+                           ), :len(object_proposals)] -= _calc_overall_qual(
+                               label_qual_mat, spatial_qual, state_change_qual)
 
     # Generate the spatial, label and (optionally) state cost tables
-    spatial_cost_table[:len(gt_objects), :len(object_proposals)] -= spatial_qual
-    label_cost_table[:len(gt_objects), :len(object_proposals)] -= label_qual_mat
+    spatial_cost_table[:len(gt_objects), :len(object_proposals
+                                             )] -= spatial_qual
+    label_cost_table[:len(gt_objects), :len(object_proposals
+                                           )] -= label_qual_mat
     if scd_mode:
-        state_cost_table[:len(gt_objects), :len(object_proposals)] -= state_change_qual
+        state_cost_table[:len(gt_objects), :len(object_proposals
+                                               )] -= state_change_qual
 
-    return {'overall': overall_cost_table, 'spatial': spatial_cost_table, 'label': label_cost_table,
-            'state': state_cost_table}
+    return {
+        'overall': overall_cost_table,
+        'spatial': spatial_cost_table,
+        'label': label_cost_table,
+        'state': state_cost_table
+    }
 
 
 def _calc_qual_map(gt_objects, object_proposals, scd_mode):
@@ -375,10 +400,21 @@ def _calc_qual_map(gt_objects, object_proposals, scd_mode):
         if len(object_proposals) > 0:
             # Calculate FP quality
             # NOTE background class is the final class in the distribution which is ignored when calculating FP cost
-            tot_fp_cost = np.sum([np.max(det_instance['prob_dist'][:-1]) for det_instance in object_proposals])
+            tot_fp_cost = np.sum([
+                np.max(det_instance['label_probs'][:-1])
+                for det_instance in object_proposals
+            ])
 
-        return {'overall': 0.0, 'spatial': 0.0, 'label': 0.0, 'fp_cost': tot_fp_cost, 'TP': 0, 'FP': len(object_proposals),
-                'FN': len(gt_objects), 'state_change': 0.0}
+        return {
+            'overall': 0.0,
+            'spatial': 0.0,
+            'label': 0.0,
+            'fp_cost': tot_fp_cost,
+            'TP': 0,
+            'FP': len(object_proposals),
+            'FN': len(gt_objects),
+            'state_change': 0.0
+        }
 
     # For each possible pairing, calculate the quality of that pairing and convert it to a cost
     # to enable use of the Hungarian algorithm.
@@ -427,19 +463,32 @@ def _calc_qual_map(gt_objects, object_proposals, scd_mode):
     # Calculate the sum of spatial and label qualities only for TP samples
     tot_tp_spatial_quality = np.sum(spatial_quality_table[row_idxs, col_idxs])
     tot_tp_label_quality = np.sum(label_quality_table[row_idxs, col_idxs])
-    tot_tp_state_change_quality = np.sum(state_change_quality_table[row_idxs, col_idxs])
+    tot_tp_state_change_quality = np.sum(
+        state_change_quality_table[row_idxs, col_idxs])
 
     # Calculate the penalty for assigning a high label probability to false positives
     # NOTE background class is final class in the class list and is not considered
     # This will be the geometric mean between the maximum label quality and maximum state estimated (ignore same)
     if scd_mode:
-        tot_fp_cost = np.sum([gmean([np.max(object_proposals[i]['prob_dist'][:-1]),
-                                     np.max(object_proposals[i]['state_probs'][:-1])])
-                              for i in false_positive_idxs])
+        tot_fp_cost = np.sum([
+            gmean([
+                np.max(object_proposals[i]['label_probs'][:-1]),
+                np.max(object_proposals[i]['state_probs'][:-1])
+            ]) for i in false_positive_idxs
+        ])
     else:
-        tot_fp_cost = np.sum([np.max(object_proposals[i]['prob_dist'][:-1]) for i in false_positive_idxs])
+        tot_fp_cost = np.sum([
+            np.max(object_proposals[i]['label_probs'][:-1])
+            for i in false_positive_idxs
+        ])
 
-    return {'overall': tot_overall_img_quality, 'spatial': tot_tp_spatial_quality, 'label': tot_tp_label_quality,
-            'fp_cost': tot_fp_cost, 'TP': true_positives, 'FP': false_positives, 'FN': false_negatives,
-            'state_change': tot_tp_state_change_quality}
-
+    return {
+        'overall': tot_overall_img_quality,
+        'spatial': tot_tp_spatial_quality,
+        'label': tot_tp_label_quality,
+        'fp_cost': tot_fp_cost,
+        'TP': true_positives,
+        'FP': false_positives,
+        'FN': false_negatives,
+        'state_change': tot_tp_state_change_quality
+    }
