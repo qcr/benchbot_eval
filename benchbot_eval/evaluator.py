@@ -1,17 +1,57 @@
 from __future__ import print_function
 
+import inspect
 import json
 import os
 import pprint
+import re
 import numpy as np
 import warnings
 from .omq import OMQ
 from . import class_list as cl
 
+# Needed to simply stop it printing the source code text with the warning...
+warnings.formatwarning = (lambda msg, cat, fn, ln, line: "%s:%d: %s: %s\n" %
+                          (fn, ln, cat.__name__, msg))
+
 
 class Evaluator:
     _TYPE_SEMANTIC_SLAM = 'semantic_slam'
     _TYPE_SCD = 'scd'
+
+    _REQUIRED_RESULTS_STRUCTURE = {
+        'task_details': {
+            'type': (lambda value: value in
+                     [Evaluator._TYPE_SEMANTIC_SLAM, Evaluator._TYPE_SCD]),
+            'control_mode':
+                lambda value: value in ['passive', 'active'],
+            'localisation_mode':
+                lambda value: value in ['ground_truth', 'dead_reckoning']
+        },
+        'environment_details': {
+            'name':
+                None,
+            'numbers': (lambda value: type(value) is list and all(
+                int(x) in range(1, 6) for x in value))
+        },
+        'objects': None
+    }
+
+    _REQUIRED_OBJECT_STRUCTURE = {
+        'label_probs': None,
+        'centroid': lambda value: len(value) == 3,
+        'extent': lambda value: len(value) == 3
+    }
+
+    _REQUIRED_SCD_OBJECT_STRUCTURE = {
+        'state_probs': lambda value: len(value) == 3
+    }
+
+    __LAMBDA_REGEX = [
+        (r'Evaluator._TYPE_([^,^\]]*)', lambda x: "'%s'" % x.group(1).lower()),
+        (r'  +', r' '), (r'^.*?(\(|lambda)', r'\1'), (r', *$', r''),
+        (r'\n', r''), (r'^\((.*)\)$', r'\1')
+    ]
 
     def __init__(self, results_filename, ground_truth_dir, scores_filename):
         # Confirm we have a valid submission file, & ground truth directory
@@ -26,6 +66,45 @@ class Evaluator:
         self.results_filename = results_filename
         self.ground_truth_dir = ground_truth_dir
         self.scores_filename = scores_filename
+
+    @staticmethod
+    def __lambda_to_text(l):
+        s = inspect.getsource(l)
+        for a, b in Evaluator.__LAMBDA_REGEX:
+            s = re.sub(a, b, s, re.DOTALL)
+        return s
+
+    @staticmethod
+    def __validate(data_dict, reference_dict, name):
+        for k, v in reference_dict.items():
+            if k not in data_dict:
+                raise ValueError("Required key '%s' not found in '%s'" %
+                                 (k, name))
+            elif type(v) is dict and type(data_dict[k]) is not dict:
+                raise ValueError("Value for '%s' in '%s' is not a dict" %
+                                 (k, name))
+            elif type(v) is dict:
+                Evaluator.__validate(data_dict[k], v, name + "['%s']" % k)
+            elif v is not None and not v(data_dict[k]):
+                raise ValueError(
+                    "Key '%s' in '%s' has value '%s', "
+                    "which fails the check:\n\t%s" %
+                    (k, name, data_dict[k], Evaluator.__lambda_to_text(v)))
+
+    def _ground_truth_file(self, name, number):
+        filename = os.path.join(self.ground_truth_dir,
+                                "%s_%s.json" % (name, number))
+        if not os.path.exists(filename):
+            raise ValueError(
+                "Results request a ground truth for variation "
+                "#%d of environment '%s', but a corresponding ground truth "
+                "file (%s) could not be found." % (number, name, filename))
+        return filename
+
+    def _raise_format_error(self, description):
+        raise ValueError(
+            "Cannot perform evaluation on results contained in '%s'. %s" %
+            (self.results_filename, description))
 
     @staticmethod
     def _evaluate_scd(results_data, ground_truth1_data, ground_truth2_data):
@@ -97,162 +176,148 @@ class Evaluator:
             }
         }
 
-    def _format_error(self, description):
-        raise ValueError(
-            "Cannot perform evaluation on results contained in '%s'. %s" %
-            (self.results_filename, description))
-
-    def _ground_truth_file(self, name, number):
-        filename = os.path.join(self.ground_truth_dir,
-                                "%s_%s.json" % (name, number))
-        if not os.path.exists(filename):
-            raise ValueError(
-                "Results request a ground truth for variation "
-                "#%d of environment '%s', but a corresponding ground truth "
-                "file (%s) could not be found." % (number, name, filename))
-        return filename
-
-    def _validate_environment(self, results_data):
-        if ('environment_details' not in results_data or
-                'name' not in results_data['environment_details'] or
-                'numbers' not in results_data['environment_details']):
-            self._format_error(
-                "Could not access required field "
-                "results_data['environment_details']['name|numbers'].")
-        # Check that all environment numbers are in the correct range
-        elif (len([
-                num for num in results_data['environment_details']['numbers']
-                if int(num) not in range(1, 6)
-        ])):
-            self._format_error(
-                "results_data['environment_details']['numbers'] "
-                "is not in the range 1-5 (inclusive).")
-
-    def _validate_type(self, results_data):
-        if ('task_details' not in results_data or
-                'type' not in results_data['task_details']):
-            self._format_error("Could not access required field "
-                               "results_data['task_details']['type'].")
-        elif (results_data['task_details']['type'] !=
-              Evaluator._TYPE_SEMANTIC_SLAM and
-              results_data['task_details']['type'] != Evaluator._TYPE_SCD):
-            self._format_error(
-                "results_data['task_details']['type'] is "
-                "not '%s' or '%s'. No other modes are supported." %
-                (Evaluator._TYPE_SEMANTIC_SLAM, Evaluator._TYPE_SCD))
+    @staticmethod
+    def _validate_object_data(object_data, object_number, scd=False):
+        try:
+            Evaluator.__validate(object_data,
+                                 Evaluator._REQUIRED_OBJECT_STRUCTURE,
+                                 'object')
+            if scd:
+                Evaluator.__validate(object_data,
+                                     Evaluator._REQUIRED_SCD_OBJECT_STRUCTURE,
+                                     'object')
+        except Exception as e:
+            raise ValueError("Validation of object #%s failed: %s" %
+                             (object_number, e))
 
     @staticmethod
-    def _format_gt(gt_data):
-        # This should only be temporary code assuming we keep the current evaluation process and GT format
-        for gt_dict in gt_data['objects']:
-            # change classes by name to class ids based on CLASS_LIST
-            gt_dict['class_id'] = cl.CLASS_IDS[gt_dict.pop('class')]
-        return gt_data
+    def _validate_results_data(results_data):
+        try:
+            Evaluator.__validate(results_data,
+                                 Evaluator._REQUIRED_RESULTS_STRUCTURE,
+                                 'results_data')
+        except Exception as e:
+            raise ValueError("Results validation failed: %s" % e)
 
     @staticmethod
-    def _format_results_data(result_data):
-        if 'objects' not in result_data:
-            raise KeyError('Results dictionary does not have a "objects" key')
-        if 'class_list' not in result_data or len('class_list') == 0:
+    def _sanitise_ground_truth(ground_truth_data):
+        # This code is only needed as we have a discrepancy between the format
+        # of ground_truth_data produced in ground truth generation, & what the
+        # evaluation process expects. Long term, the discrepancy should be
+        # rectified & this code removed.
+        for o in ground_truth_data['objects']:
+            o['class_id'] = cl.get_nearest_class_id(
+                o.pop('class'))  # swap name for ID
+        return ground_truth_data
+
+    @staticmethod
+    def sanitise_results_data(results_data):
+        is_scd = results_data['task_details']['type'] == Evaluator._TYPE_SCD
+        # Validate the provided results data
+        Evaluator._validate_results_data(results_data)
+        for i, o in enumerate(results_data['objects']):
+            Evaluator._validate_object_data(o, i, scd=is_scd)
+
+        # Use the default class_list if none is provided
+        if 'class_list' not in results_data or not results_data['class_list']:
             warnings.warn(
-                'class_list not provided in result_data, assuming default class list'
-            )
-            result_class_list = cl.CLASS_LIST
-        else:
-            result_class_list = result_data['class_list']
+                "No 'class_list' field provided; assuming results have used "
+                "our default class list")
+            results_data['class_list'] = cl.CLASS_LIST
 
-        # check result detections have a prob_dist key and content is formatted correctly
-        for prop_id, prop_dict in enumerate(result_data['objects']):
-            if 'label_probs' not in prop_dict.keys():
-                raise KeyError(
-                    'Proposal {} does not have a "label_probs" key'.format(
-                        prop_id))
-
-            if len(prop_dict['label_probs']) != len(result_class_list):
+        # Sanitise all probability distributions for labels & states if
+        # applicable (sanitising involves dumping unused bins to the background
+        # / uncertain class, normalising the total probability to 1, &
+        # optionally rearranging to match a required order)
+        for o in results_data['objects']:
+            if len(o['label_probs']) != len(results_data['class_list']):
                 raise ValueError(
-                    'Probability distribution for proposal {} has incorrect size.\n'
-                    'Is {} but should match your defined class list size ({})\n'
-                    'Note, the final class is background.'
-                    ''.format(prop_id, len(prop_dict['label_probs']),
-                              len(result_class_list)))
+                    "The label probability distribution for object %d has a "
+                    "different length (%d) \nto the used class list (%d). " %
+                    (i, len(o['label_probs']), len(
+                        results_data['class_list'])))
+            o['label_probs'] = Evaluator.sanitise_prob_dist(
+                o['label_probs'], results_data['class_list'])
+            if is_scd:
+                o['state_probs'] = Evaluator.sanitise_prob_dist(
+                    o['state_probs'])
 
-            # Format the probability distribution to match the class list order used for evaluation
-            # Work out which of the submission classes correspond to which of our classes
+        # We have applied our default class list to the label probs, so update
+        # the class list in results_data
+        results_data['class_list'] = cl.CLASS_LIST
 
-            prop_dict['label_probs'] = Evaluator._format_prob_dist(
-                result_class_list, prop_dict['label_probs'])
+        return results_data
 
     @staticmethod
-    def _format_prob_dist(original_class_list, original_prob_dist):
-        # Find the corresponding indices for every entry in the probability distribution
-        eval_class_ids = []
-        original_class_ids = []
-        for sub_class_id, class_name in enumerate(original_class_list):
-            our_class_id = cl.get_class_id(class_name)
-            if our_class_id is not None:
-                eval_class_ids.append(our_class_id),
-                original_class_ids.append(sub_class_id)
+    def sanitise_prob_dist(prob_dist, current_class_list=None):
+        # This code makes the assumption that the last bin is the background /
+        # "I'm not sure" class (it is an assumption because this function can
+        # be called with no explicit use of a class list)
+        BACKGROUND_CLASS_INDEX = -1
 
-        # Use numpy list indexing to move specific indexes from the submission
-        eval_prob_list = np.zeros(len(cl.CLASS_LIST), dtype=np.float32)
-        eval_prob_list[eval_class_ids] = np.array(
-            original_prob_dist)[original_class_ids]
+        # Create a new prob_dist if we were given a current class list by
+        # converting all current classes to items in our current class
+        # list, & amalgamating all duplicate values (e.g. anything not
+        # found in our list will be added to the background class)
+        if current_class_list is not None:
+            new_prob_dist = [0.0] * len(cl.CLASS_LIST)
+            for i, c in enumerate(current_class_list):
+                new_prob_dist[BACKGROUND_CLASS_INDEX if cl.
+                              get_nearest_class_id(c) is None else cl.
+                              get_nearest_class_id(c)] += prob_dist[i]
+            prob_dist = new_prob_dist
 
-        # Normalize any distribution with a total greater than 1 (no all 1 distributions)
-        total_prob = np.sum(eval_prob_list)
+        # Either normalize the distribution if it has a total > 1, or dump
+        # missing probability into the background / "I'm not sure" class
+        total_prob = np.sum(prob_dist)
         if total_prob > 1:
-            eval_prob_list /= total_prob
+            prob_dist /= total_prob
+        else:
+            prob_dist[BACKGROUND_CLASS_INDEX] += 1 - total_prob
 
-        # return the updated probability distribution as a list
-        return eval_prob_list.tolist()
+        return prob_dist
 
     def evaluate(self):
-        # Open the submission & attempt to perform evaluation
-        print("Evaluating the performance from results in: %s\n" %
+        # Open the submission, pulling in the supplied JSON data (ensuring it
+        # is both valid & sanitised as we pull it in)
+        print("Evaluating the performance from results in '%s':\n" %
               self.results_filename)
         with open(self.results_filename, 'r') as f:
-            # Pull in the json data, ensuring a valid type is provided
-            results_data = json.load(f)
-            self._validate_type(results_data)
+            results_data = Evaluator.sanitise_results_data(json.load(f))
 
-        # Get the ground_truth_data by using the environment fields in
-        # results_data
-        self._validate_environment(results_data)
-        Evaluator._format_results_data(results_data)
-        ground_truth_data_all = []
-        for number in results_data['environment_details']['numbers']:
+        # Get ground truth data from environment_details fields in results_data
+        # (sanitise each ground truth file as we pull it in)
+        ground_truth_data = []
+        for i in results_data['environment_details']['numbers']:
             with open(
                     self._ground_truth_file(
-                        results_data['environment_details']['name'], number),
+                        results_data['environment_details']['name'], i),
                     'r') as f:
                 # NOTE should remove format step in time
-                ground_truth_data_all.append(
-                    Evaluator._format_gt((json.load(f))))
+                ground_truth_data.append(
+                    Evaluator._sanitise_ground_truth((json.load(f))))
 
-        # Perform evaluation
+        # Pick the appropriate evaluation (ensuring the correct number of
+        # ground truth files have been loaded)
         if results_data['task_details']['type'] == Evaluator._TYPE_SCD:
-            # Check we have two sets of ground-truth data
-            if len(ground_truth_data_all) != 2:
+            if len(ground_truth_data) != 2:
                 raise ValueError("Scene Change Detection requires exactly"
-                                 "2 environments. {} provided".format(
-                                     len(ground_truth_data_all)))
-            scores_data = self._evaluate_scd(results_data,
-                                             ground_truth_data_all[0],
-                                             ground_truth_data_all[1])
+                                 "2 environments (%d provided)" %
+                                 len(ground_truth_data))
+            eval_fn = self._evaluate_scd
         else:
-            # Check we have only one set of ground-truth data
-            if len(ground_truth_data_all) != 1:
+            if len(ground_truth_data) != 1:
                 raise ValueError("Semantic SLAM requires exactly"
-                                 "1 environment. {} provided".format(
-                                     len(ground_truth_data_all)))
-            scores_data = self._evaluate_semantic_slam(
-                results_data, ground_truth_data_all[0])
+                                 "1 environment (%d provided)" %
+                                 len(ground_truth_data))
+            eval_fn = self._evaluate_semantic_slam
 
-        # Print the results cutely?
+        # Perform evaluation, & print the results
+        scores_data = eval_fn(results_data, *ground_truth_data)
+        print("\n\nEvaluation results:\n")
         pprint.pprint(scores_data)
 
-        # Save the results
+        # Save the results & finish
         with open(self.scores_filename, 'w') as f:
             json.dump(scores_data, f)
-
         print("\nDone.")
