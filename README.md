@@ -100,13 +100,13 @@ Notes:
     - `'label_probs'` is the probability distribution for the suggested object label corresponding to the class list in `'class_list'`, or our default class list above (must be a list of numbers)
     - `'centroid'` is the 3D coordinates for the centre of the object's cuboid (must be a list of 3 numbers)
     - `'extent'` is the **full** width, height, & depth of the cuboid (must be a list of 3 numbers)
-    - the cuboid described by `'centroid'` & `'extent'` must be axis-aligned in global coordinates, & use metres for units
+        - **Note** the cuboid described by `'centroid'` & `'extent'` must be axis-aligned in global coordinates, & use metres for units
     - `'state_probs'` must be a list of 3 numbers corresponding to the probability that the object was added, removed, or changed respectively (**only** required when `'type'` is `'scd'` in `'task_details'`)
-    -  if your system is not probabilistic, simply use all 0s & a single 1 for any of the distributions above (e.g. `'state_probs'` of  `[1, 0, 0]` for an added object)
-- `'class_list'` is a list of strings defining a custom order for the probabilities in the `'label_probs'` distribution field of objects (if not provided the default class list & order is assumed)
-- there is some support given for class name synonyms in `./benchbot_eval/class_list.py`.
-- any class names given that are not in our class list, & don't have an appropriate synonym, will have their probability added to the `'background'` class (this avoids over-weighting label predictions solely because your detector had classes we don't support)
-- all probability distributions in `'label_probs'` & `'state_probs'` are normalized if their total probability is greater than 1, or have the missing probability added to the final class (`'background'` or `'unchanged'`)
+        -  **Note** if your system is not probabilistic, simply use all 0s & a single 1 for any of the distributions above (e.g. `'state_probs'` of  `[1, 0, 0]` for an added object)
+- `'class_list'` is a list of strings defining a custom order for the probabilities in the `'label_probs'` distribution field of objects (if not provided the default class list & order is assumed). Other notes on `class_list`:
+    - there is some support given for class name synonyms in `./benchbot_eval/class_list.py`.
+    - any class names given that are not in our class list, & don't have an appropriate synonym, will have their probability added to the `'background'` class (this avoids over-weighting label predictions solely because your detector had classes we don't support)
+    - all probability distributions in `'label_probs'` & `'state_probs'` are normalized if their total probability is greater than 1, or have the missing probability added to the final class (`'background'` or `'unchanged'`)
 
 ## Generating results for evaluation
 
