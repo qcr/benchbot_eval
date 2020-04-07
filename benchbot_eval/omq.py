@@ -75,9 +75,9 @@ class OMQ(object):
         (average pairwise quality over the number of object-detection pairs observed with FPs weighted by confidence).
         """
         denominator = self._tot_TP + self._tot_fp_cost + self._tot_FN
-        if denominator == 0:
-            return 0.0
-        return self._tot_overall_quality / denominator
+        if denominator > 0.0:
+            return self._tot_overall_quality / denominator
+        return 0.0
 
     def score(self, param_lists):
         """
@@ -470,12 +470,13 @@ def _calc_qual_map(gt_objects, object_proposals, scd_mode):
     # NOTE background class is final class in the class list and is not considered
     # This will be the geometric mean between the maximum label quality and maximum state estimated (ignore same)
     if scd_mode:
-        tot_fp_cost = np.sum([
-            gmean([
-                np.max(object_proposals[i]['label_probs'][:-1]),
-                np.max(object_proposals[i]['state_probs'][:-1])
-            ]) for i in false_positive_idxs
-        ])
+        with np.errstate(divide='ignore'):
+            tot_fp_cost = np.sum([
+                gmean([
+                    np.max(object_proposals[i]['label_probs'][:-1]),
+                    np.max(object_proposals[i]['state_probs'][:-1])
+                ]) for i in false_positive_idxs
+            ])
     else:
         tot_fp_cost = np.sum([
             np.max(object_proposals[i]['label_probs'][:-1])
