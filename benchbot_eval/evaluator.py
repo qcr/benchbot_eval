@@ -1,19 +1,56 @@
 from __future__ import print_function
 
+import inspect
 import json
 import os
 import pprint
-import sys
+import re
 import numpy as np
-from .iou_tools import IoU
+import warnings
+from .omq import OMQ
+from . import class_list as cl
+
+# Needed to simply stop it printing the source code text with the warning...
+warnings.formatwarning = (lambda msg, cat, fn, ln, line: "%s:%d: %s: %s\n" %
+                          (fn, ln, cat.__name__, msg))
 
 
 class Evaluator:
     _TYPE_SEMANTIC_SLAM = 'semantic_slam'
     _TYPE_SCD = 'scd'
-    _IOU_THRESHOLDS = [
-        0.25, 0.3, 0.35, 0.4, 0.45, 0.5, 0.55, 0.6, 0.65, 0.7, 0.75, 0.8, 0.85,
-        0.9, 0.95
+
+    _REQUIRED_RESULTS_STRUCTURE = {
+        'task_details': {
+            'type': (lambda value: value in
+                     [Evaluator._TYPE_SEMANTIC_SLAM, Evaluator._TYPE_SCD]),
+            'control_mode':
+                lambda value: value in ['passive', 'active'],
+            'localisation_mode':
+                lambda value: value in ['ground_truth', 'dead_reckoning']
+        },
+        'environment_details': {
+            'name':
+                None,
+            'numbers': (lambda value: type(value) is list and all(
+                int(x) in range(1, 6) for x in value))
+        },
+        'objects': None
+    }
+
+    _REQUIRED_OBJECT_STRUCTURE = {
+        'label_probs': None,
+        'centroid': lambda value: len(value) == 3,
+        'extent': lambda value: len(value) == 3
+    }
+
+    _REQUIRED_SCD_OBJECT_STRUCTURE = {
+        'state_probs': lambda value: len(value) == 3
+    }
+
+    __LAMBDA_REGEX = [
+        (r'Evaluator._TYPE_([^,^\]]*)', lambda x: "'%s'" % x.group(1).lower()),
+        (r'  +', r' '), (r'^.*?(\(|lambda)', r'\1'), (r', *$', r''),
+        (r'\n', r''), (r'^\((.*)\)$', r'\1')
     ]
 
     def __init__(self, results_filename, ground_truth_dir, scores_filename):
@@ -31,251 +68,28 @@ class Evaluator:
         self.scores_filename = scores_filename
 
     @staticmethod
-    def _compute_ap(tps, fps, num_gt):
-        """
-        Adapted from https://github.com/rbgirshick/py-faster-rcnn/blob/master/lib/datasets/voc_eval.py
-        Calculate the AP given the recall and precision array
-        1st) We compute a version of the measured precision/recall curve with
-            precision monotonically decreasing
-        2nd) We compute the AP as the area under this curve by numerical integration.
-        Input is tp and fp boolean vectors ordered by highest class confidence
-        """
-        # Check if we have any TPs at all. If not mAP is zero
-        if np.sum(tps) == 0:
-            return 0
-        # Calculate cumulative sums
-        cum_fp = np.cumsum(fps)
-        cum_tp = np.cumsum(tps)
-
-        # Calculate the recall and precision as each detection is "introduced"
-        # Note this is ordered by class confidence starting with highest confidence
-        rec = cum_tp / num_gt
-        prec = cum_tp / (cum_tp + cum_fp + 1e-10)
-
-        # bound the precisions and recall values
-        mrec = np.concatenate(([0.], rec, [1.]))
-        mpre = np.concatenate(([0.], prec, [0.]))
-
-        # compute the precision envelope
-        # i.e. remove the "wiggles" from the PR curve
-        for i in range(mpre.size - 1, 0, -1):
-            mpre[i - 1] = np.maximum(mpre[i - 1], mpre[i])
-
-        # to calculate area under PR curve, look for points
-        # where X axis (recall) changes value
-        i = np.where(mrec[1:] != mrec[:-1])[0]
-
-        # and sum (\Delta recall) * prec
-        ap = np.sum((mrec[i + 1] - mrec[i]) * mpre[i + 1])
-        return ap
+    def __lambda_to_text(l):
+        s = inspect.getsource(l)
+        for a, b in Evaluator.__LAMBDA_REGEX:
+            s = re.sub(a, b, s, re.DOTALL)
+        return s
 
     @staticmethod
-    def _compute_map(gt_dicts, det_dicts):
-        """
-        Calculate all map score summaries for given set of ground-truth objects and detections.
-        Here ground-truth objects and detections are represented with dictionaries
-        """
-        # Compile collection of all classes of ground-truth objects
-        # NOTE we do not care about if detection has an unkown class (all such detections would be FPs)
-        object_classes = list(
-            np.unique([gt_dict['class'] for gt_dict in gt_dicts]))
-        iou_calculator = IoU()
-
-        total_mAP_2d = 0.0
-        total_mAP_3d = 0.0
-        total_mAP_3d_25 = 0.0
-        total_mAP_2d_25 = 0.0
-        total_mAP_3d_50 = 0.0
-        total_mAP_2d_50 = 0.0
-
-        # Evaluate AP for each class
-        for object_class in object_classes:
-            # Get the detections for the current class (sorted by highest confidence)
-            class_dets = [
-                det_dict for det_dict in det_dicts
-                if det_dict['class'] == object_class
-            ]
-            class_dets = sorted(class_dets,
-                                key=lambda conf: conf['confidence'],
-                                reverse=True)
-
-            # Get the ground-truth instances for the current class
-            class_gts = [
-                gt_dict for gt_dict in gt_dicts
-                if gt_dict['class'] == object_class
-            ]
-
-            # Matrix holding the IoU values for 2D and 3D situation for each GT and Det
-            ious_2d = np.ones((len(class_gts), len(class_dets)))  # G x D
-            ious_3d = np.ones((len(class_gts), len(class_dets)))  # G x D
-
-            # Calculate IoUs
-            for det_id, det_dict in enumerate(class_dets):
-                for gt_id, gt_dict in enumerate(class_gts):
-                    ious_2d[gt_id, det_id], ious_3d[
-                        gt_id, det_id] = iou_calculator.dict_iou(
-                            gt_dict, det_dict)
-
-            # Rank each ground-truth by how well it overlaps the given detection
-            # Note in code we use 1 - iou to rank based on similarity
-            det_assignment_rankings_2d = np.argsort((1 - ious_2d), axis=0)
-            det_assignment_rankings_3d = np.argsort((1 - ious_3d), axis=0)
-
-            # NOTE Should we be looking at different thresholds for 2D vs 3D?
-            # Calculate mAP for each threshold level
-            for threshold in Evaluator._IOU_THRESHOLDS:
-                assigned_2d = np.zeros(ious_2d.shape, bool)
-                assigned_3d = np.zeros(ious_3d.shape, bool)
-
-                # Perform assignments
-                for det_id in range(len(class_dets)):
-
-                    # TODO Must be neater way to do this later!
-                    # 2D assignment
-                    for gt_id in det_assignment_rankings_2d[:, det_id]:
-                        # If we are lower than the iou threshold we aren't going to find a match
-                        if ious_2d[gt_id, det_id] < threshold:
-                            break
-                        # If we are higher than the threshold and gt not assigned, assign it and move on
-                        elif not np.any(assigned_2d[gt_id, :]):
-                            assigned_2d[gt_id, det_id] = True
-                            break
-
-                    # 3D assignment
-                    for gt_id in det_assignment_rankings_3d[:, det_id]:
-                        # If we are lower than the iou threshold we aren't going to find a match
-                        if ious_3d[gt_id, det_id] < threshold:
-                            break
-                        # If we are higher than the threshold and gt not assigned, assign it and move on
-                        elif not np.any(assigned_3d[gt_id, :]):
-                            assigned_3d[gt_id, det_id] = True
-                            break
-
-                # Condense to TPs and FPs for detections
-                # NOTE using sum as there should be only one for each column (quicker than non_zero or bool?)
-                tps_2d = np.sum(assigned_2d, axis=0).astype(bool)
-                tps_3d = np.sum(assigned_3d, axis=0).astype(bool)
-                fps_2d = np.logical_not(tps_2d)
-                fps_3d = np.logical_not(tps_3d)
-
-                mAP_2d = Evaluator._compute_ap(tps_2d, fps_2d, len(class_gts))
-                mAP_3d = Evaluator._compute_ap(tps_3d, fps_3d, len(class_gts))
-
-                total_mAP_2d += mAP_2d
-                total_mAP_3d += mAP_3d
-
-                if threshold == 0.25:
-                    total_mAP_3d_25 += mAP_3d
-                    total_mAP_2d_25 += mAP_2d
-                elif threshold == 0.5:
-                    total_mAP_3d_50 += mAP_3d
-                    total_mAP_2d_50 += mAP_2d
-
-        # Average over the number of classes to get final mAP score
-        mAP_2d = total_mAP_2d / (len(object_classes) *
-                                 len(Evaluator._IOU_THRESHOLDS))
-        mAP_3d = total_mAP_3d / (len(object_classes) *
-                                 len(Evaluator._IOU_THRESHOLDS))
-        mAP_2d_25 = total_mAP_2d_25 / len(object_classes)
-        mAP_3d_25 = total_mAP_3d_25 / len(object_classes)
-        mAP_2d_50 = total_mAP_2d_50 / len(object_classes)
-        mAP_3d_50 = total_mAP_3d_50 / len(object_classes)
-
-        return {
-            'mAP3D': mAP_3d,
-            'mAPbev': mAP_2d,
-            'mAP3D_25': mAP_3d_25,
-            'mAP3D_50': mAP_3d_50,
-            'mAPbev_25': mAP_2d_25,
-            'mAPbev_50': mAP_2d_50,
-        }
-
-    @staticmethod
-    def _evaluate_scd(results_data, ground_truth1_data, ground_truth2_data):
-        # Takes in results data from a BenchBot submission, evaluates the
-        # result using the ground truth data for env 1 and env 2, & then spits out a dict of scores data
-
-        gt_dicts_1 = ground_truth1_data['objects']
-        gt_dicts_2 = ground_truth2_data['objects']
-
-        # Establish ground-truth scene change info from two ground-truth files
-        # removed (rem) and added (add)
-        # NOTE Currently assuming the gt dict will be the same across the two
-        gt_dicts_rem = [
-            gt_dict for gt_dict in gt_dicts_1 if gt_dict not in gt_dicts_2
-        ]
-        gt_dicts_add = [
-            gt_dict for gt_dict in gt_dicts_2 if gt_dict not in gt_dicts_1
-        ]
-
-        # Extract the added and removed detections from the result data
-        det_dicts_all = results_data['detections']
-        det_dicts_rem = [
-            det_dict for det_dict in det_dicts_all
-            if 'changed_state' in det_dict.keys() and
-            det_dict['changed_state'] == 'removed'
-        ]
-        det_dicts_add = [
-            det_dict for det_dict in det_dicts_all
-            if 'changed_state' in det_dict.keys() and
-            det_dict['changed_state'] == 'added'
-        ]
-
-        # Get the mAP scores for the removed and added maps
-        scores_rem = Evaluator._compute_map(gt_dicts_rem, det_dicts_rem)
-        scores_add = Evaluator._compute_map(gt_dicts_add, det_dicts_add)
-
-        # Calculate weighted average of removed and added scores
-        mAP3d_rem = scores_rem['mAP3D']
-        mAP3d_add = scores_add['mAP3D']
-        mAP2d_rem = scores_rem['mAPbev']
-        mAP2d_add = scores_add['mAPbev']
-        ngt_add = len(gt_dicts_add)
-        ngt_rem = len(gt_dicts_rem)
-
-        # NOTE here the mAP3D an mAPbev are weighted averages of the rem and add scores
-        scores = {
-            'mAP3D_a':
-                mAP3d_add,
-            'mAP3D_r':
-                mAP3d_rem,
-            'mAPbev_a':
-                mAP2d_add,
-            'mAPbev_r':
-                mAP2d_rem,
-            'mAP3D': (ngt_add * mAP3d_add + ngt_rem * mAP3d_rem) /
-                     (ngt_add + ngt_rem),
-            'mAPbev': (ngt_add * mAP2d_add + ngt_rem * mAP2d_rem) /
-                      (ngt_add + ngt_rem)
-        }
-
-        return {
-            'task_details': results_data['task_details'],
-            'environment_details': results_data['environment_details'],
-            'scores': scores
-        }
-
-    @staticmethod
-    def _evaluate_semantic_slam(results_data, ground_truth_data):
-        # Takes in results data from a BenchBot submission, evaluates the
-        # result using the ground truth data, & then spits out a dict of scores data
-
-        # NOTE currently assume there is a detections field in the results_data and
-        # an objects field in the ground_truth_data
-        det_dicts = results_data['detections']
-
-        gt_dicts = ground_truth_data['objects']
-
-        return {
-            'task_details': results_data['task_details'],
-            'environment_details': results_data['environment_details'],
-            'scores': Evaluator._compute_map(gt_dicts, det_dicts)
-        }
-
-    def _format_error(self, description):
-        raise ValueError(
-            "Cannot perform evaluation on results contained in '%s'. %s" %
-            (self.results_filename, description))
+    def __validate(data_dict, reference_dict, name):
+        for k, v in reference_dict.items():
+            if k not in data_dict:
+                raise ValueError("Required key '%s' not found in '%s'" %
+                                 (k, name))
+            elif type(v) is dict and type(data_dict[k]) is not dict:
+                raise ValueError("Value for '%s' in '%s' is not a dict" %
+                                 (k, name))
+            elif type(v) is dict:
+                Evaluator.__validate(data_dict[k], v, name + "['%s']" % k)
+            elif v is not None and not v(data_dict[k]):
+                raise ValueError(
+                    "Key '%s' in '%s' has value '%s', "
+                    "which fails the check:\n\t%s" %
+                    (k, name, data_dict[k], Evaluator.__lambda_to_text(v)))
 
     def _ground_truth_file(self, name, number):
         filename = os.path.join(self.ground_truth_dir,
@@ -287,79 +101,223 @@ class Evaluator:
                 "file (%s) could not be found." % (number, name, filename))
         return filename
 
-    def _validate_environment(self, results_data):
-        if ('environment_details' not in results_data or
-                'name' not in results_data['environment_details'] or
-                'numbers' not in results_data['environment_details']):
-            self._format_error(
-                "Could not access required field "
-                "results_data['environment_details']['name|numbers'].")
-        # Check that all environment numbers are in the correct range
-        elif (len([
-                num for num in results_data['environment_details']['numbers']
-                if int(num) not in range(1, 6)
-        ])):
-            self._format_error(
-                "results_data['environment_details']['numbers'] "
-                "is not in the range 1-5 (inclusive).")
+    def _raise_format_error(self, description):
+        raise ValueError(
+            "Cannot perform evaluation on results contained in '%s'. %s" %
+            (self.results_filename, description))
 
-    def _validate_type(self, results_data):
-        if ('task_details' not in results_data or
-                'type' not in results_data['task_details']):
-            self._format_error("Could not access required field "
-                               "results_data['task_details']['type'].")
-        elif (results_data['task_details']['type'] !=
-              Evaluator._TYPE_SEMANTIC_SLAM and
-              results_data['task_details']['type'] != Evaluator._TYPE_SCD):
-            self._format_error(
-                "results_data['task_details']['type'] is "
-                "not '%s' or '%s'. No other modes are supported." %
-                (Evaluator._TYPE_SEMANTIC_SLAM, Evaluator._TYPE_SCD))
+    @staticmethod
+    def _evaluate_scd(results_data, ground_truth1_data, ground_truth2_data):
+        # Takes in results data from a BenchBot submission and evaluates the
+        # difference map to results
+
+        # Use the ground truth object-based semantic maps for each scene to
+        # derive the ground truth scene change semantic map (use empty lists to
+        # handle missing fields just in case)
+        # NOTE: ground truth uses a flag to determine change state rather than
+        # the distribution provided in the submission results
+        gt_objects_1 = (ground_truth1_data['objects']
+                        if 'objects' in ground_truth1_data else [])
+        gt_objects_2 = (ground_truth2_data['objects']
+                        if 'objects' in ground_truth2_data else [])
+        gt_changes = [{
+            **o, 'state': 'removed'
+        } for o in gt_objects_1 if o not in gt_objects_2]
+        gt_changes += [{
+            **o, 'state': 'added'
+        } for o in gt_objects_2 if o not in gt_objects_1]
+
+        # Grab an evaluator instance, & use it to return some results
+        evaluator = OMQ(scd_mode=True)
+        return {
+            'task_details': results_data['task_details'],
+            'environment_details': results_data['environment_details'],
+            'scores': {
+                'OMQ':
+                    evaluator.score([(gt_changes, results_data['objects'])]),
+                'avg_pairwise':
+                    evaluator.get_avg_overall_quality_score(),
+                'avg_label':
+                    evaluator.get_avg_label_score(),
+                'avg_spatial':
+                    evaluator.get_avg_spatial_score(),
+                'avg_fp_quality':
+                    evaluator.get_avg_fp_score(),
+                'avg_state_quality':
+                    evaluator.get_avg_state_score()
+            }
+        }
+
+    @staticmethod
+    def _evaluate_semantic_slam(results_data, ground_truth_data):
+        # Takes in results data from a BenchBot submission, evaluates the
+        # result using the ground truth data, & then spits out a dict of scores
+        # data
+
+        # Get both sets of objects (we should have handled missing fields well
+        # & truly by now, but it can't hurt just to use empty lists if no
+        # objects are found)
+        res_objects = (results_data['objects']
+                       if 'objects' in results_data else [])
+        gt_objects = (ground_truth_data['objects']
+                      if 'objects' in ground_truth_data else [])
+
+        # Grab an evaluator instance, & use it to return some results
+        evaluator = OMQ()
+        return {
+            'task_details': results_data['task_details'],
+            'environment_details': results_data['environment_details'],
+            'scores': {
+                'OMQ': evaluator.score([(gt_objects, res_objects)]),
+                'avg_pairwise': evaluator.get_avg_overall_quality_score(),
+                'avg_label': evaluator.get_avg_label_score(),
+                'avg_spatial': evaluator.get_avg_spatial_score(),
+                'avg_fp_quality': evaluator.get_avg_fp_score()
+            }
+        }
+
+    @staticmethod
+    def _validate_object_data(object_data, object_number, scd=False):
+        try:
+            Evaluator.__validate(object_data,
+                                 Evaluator._REQUIRED_OBJECT_STRUCTURE,
+                                 'object')
+            if scd:
+                Evaluator.__validate(object_data,
+                                     Evaluator._REQUIRED_SCD_OBJECT_STRUCTURE,
+                                     'object')
+        except Exception as e:
+            raise ValueError("Validation of object #%s failed: %s" %
+                             (object_number, e))
+
+    @staticmethod
+    def _validate_results_data(results_data):
+        try:
+            Evaluator.__validate(results_data,
+                                 Evaluator._REQUIRED_RESULTS_STRUCTURE,
+                                 'results_data')
+        except Exception as e:
+            raise ValueError("Results validation failed: %s" % e)
+
+    @staticmethod
+    def _sanitise_ground_truth(ground_truth_data):
+        # This code is only needed as we have a discrepancy between the format
+        # of ground_truth_data produced in ground truth generation, & what the
+        # evaluation process expects. Long term, the discrepancy should be
+        # rectified & this code removed.
+        for o in ground_truth_data['objects']:
+            o['class_id'] = cl.get_nearest_class_id(
+                o.pop('class'))  # swap name for ID
+        return ground_truth_data
+
+    @staticmethod
+    def sanitise_results_data(results_data):
+        is_scd = results_data['task_details']['type'] == Evaluator._TYPE_SCD
+        # Validate the provided results data
+        Evaluator._validate_results_data(results_data)
+        for i, o in enumerate(results_data['objects']):
+            Evaluator._validate_object_data(o, i, scd=is_scd)
+
+        # Use the default class_list if none is provided
+        if 'class_list' not in results_data or not results_data['class_list']:
+            warnings.warn(
+                "No 'class_list' field provided; assuming results have used "
+                "our default class list")
+            results_data['class_list'] = cl.CLASS_LIST
+
+        # Sanitise all probability distributions for labels & states if
+        # applicable (sanitising involves dumping unused bins to the background
+        # / uncertain class, normalising the total probability to 1, &
+        # optionally rearranging to match a required order)
+        for o in results_data['objects']:
+            if len(o['label_probs']) != len(results_data['class_list']):
+                raise ValueError(
+                    "The label probability distribution for object %d has a "
+                    "different length (%d) \nto the used class list (%d). " %
+                    (i, len(o['label_probs']), len(
+                        results_data['class_list'])))
+            o['label_probs'] = Evaluator.sanitise_prob_dist(
+                o['label_probs'], results_data['class_list'])
+            if is_scd:
+                o['state_probs'] = Evaluator.sanitise_prob_dist(
+                    o['state_probs'])
+
+        # We have applied our default class list to the label probs, so update
+        # the class list in results_data
+        results_data['class_list'] = cl.CLASS_LIST
+
+        return results_data
+
+    @staticmethod
+    def sanitise_prob_dist(prob_dist, current_class_list=None):
+        # This code makes the assumption that the last bin is the background /
+        # "I'm not sure" class (it is an assumption because this function can
+        # be called with no explicit use of a class list)
+        BACKGROUND_CLASS_INDEX = -1
+
+        # Create a new prob_dist if we were given a current class list by
+        # converting all current classes to items in our current class
+        # list, & amalgamating all duplicate values (e.g. anything not
+        # found in our list will be added to the background class)
+        if current_class_list is not None:
+            new_prob_dist = [0.0] * len(cl.CLASS_LIST)
+            for i, c in enumerate(current_class_list):
+                new_prob_dist[BACKGROUND_CLASS_INDEX if cl.
+                              get_nearest_class_id(c) is None else cl.
+                              get_nearest_class_id(c)] += prob_dist[i]
+            prob_dist = new_prob_dist
+
+        # Either normalize the distribution if it has a total > 1, or dump
+        # missing probability into the background / "I'm not sure" class
+        total_prob = np.sum(prob_dist)
+        if total_prob > 1:
+            prob_dist /= total_prob
+        else:
+            prob_dist[BACKGROUND_CLASS_INDEX] += 1 - total_prob
+
+        return prob_dist
 
     def evaluate(self):
-        # Open the submission & attempt to perform evaluation
-        print("Evaluating the performance from results in: %s\n" %
+        # Open the submission, pulling in the supplied JSON data (ensuring it
+        # is both valid & sanitised as we pull it in)
+        print("Evaluating the performance from results in '%s':\n" %
               self.results_filename)
         with open(self.results_filename, 'r') as f:
-            # Pull in the json data, ensuring a valid type is provided
-            results_data = json.load(f)
-            self._validate_type(results_data)
+            results_data = Evaluator.sanitise_results_data(json.load(f))
 
-        # Get the ground_truth_data by using the environment fields in
-        # results_data
-        self._validate_environment(results_data)
-        ground_truth_data_all = []
-        for number in results_data['environment_details']['numbers']:
+        # Get ground truth data from environment_details fields in results_data
+        # (sanitise each ground truth file as we pull it in)
+        ground_truth_data = []
+        for i in results_data['environment_details']['numbers']:
             with open(
                     self._ground_truth_file(
-                        results_data['environment_details']['name'], number),
+                        results_data['environment_details']['name'], i),
                     'r') as f:
-                ground_truth_data_all.append(json.load(f))
+                # NOTE should remove format step in time
+                ground_truth_data.append(
+                    Evaluator._sanitise_ground_truth((json.load(f))))
 
-        # Perform evaluation
+        # Pick the appropriate evaluation (ensuring the correct number of
+        # ground truth files have been loaded)
         if results_data['task_details']['type'] == Evaluator._TYPE_SCD:
-            # Check we have two sets of ground-truth data
-            if len(ground_truth_data_all) != 2:
+            if len(ground_truth_data) != 2:
                 raise ValueError("Scene Change Detection requires exactly"
-                                 "2 environments. {} provided".format(
-                                     len(ground_truth_data_all)))
-            scores_data = self._evaluate_scd(results_data,
-                                             ground_truth_data_all[0],
-                                             ground_truth_data_all[1])
+                                 "2 environments (%d provided)" %
+                                 len(ground_truth_data))
+            eval_fn = self._evaluate_scd
         else:
-            # Check we have only one set of ground-truth data
-            if len(ground_truth_data_all) != 1:
+            if len(ground_truth_data) != 1:
                 raise ValueError("Semantic SLAM requires exactly"
-                                 "1 environment. {} provided".format(
-                                     len(ground_truth_data_all)))
-            scores_data = self._evaluate_semantic_slam(
-                results_data, ground_truth_data_all[0])
+                                 "1 environment (%d provided)" %
+                                 len(ground_truth_data))
+            eval_fn = self._evaluate_semantic_slam
 
-        # Print the results cutely?
+        # Perform evaluation, & print the results
+        scores_data = eval_fn(results_data, *ground_truth_data)
+        print("\n\nEvaluation results:\n")
         pprint.pprint(scores_data)
 
-        # Save the results
+        # Save the results & finish
         with open(self.scores_filename, 'w') as f:
             json.dump(scores_data, f)
-
         print("\nDone.")
