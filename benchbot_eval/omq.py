@@ -454,8 +454,9 @@ def _calc_qual_map(gt_objects, object_proposals, scd_mode):
                     # check if max match class is a grouped object
                     best_gt_idx = np.argmax(overall_quality_table[:, col_id])
                     if 'isgroup' in gt_objects[best_gt_idx] and gt_objects[best_gt_idx]['isgroup']:
-                        # check if the class of the detection matches the class of the object
-                        if np.argmax(object_proposals[col_id]['label_probs']) == gt_objects[best_gt_idx]['class_id']:
+                        # check if the class of the detection matches the class of the object and overlaps > 0.25 IoU
+                        if np.argmax(object_proposals[col_id]['label_probs']) == gt_objects[best_gt_idx]['class_id'] \
+                                and spatial_quality_table[best_gt_idx, col_id] >= 0.25:
                             # if all criteria met, skip this detection in both fp quality and number of fps
                             continue
                 false_positives += 1
