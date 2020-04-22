@@ -53,17 +53,18 @@ class Evaluator:
         (r'\n', r''), (r'^\((.*)\)$', r'\1')
     ]
 
-    def __init__(self, results_filename, ground_truth_dir, scores_filename):
+    def __init__(self, results_filenames, ground_truth_dir, scores_filename):
         # Confirm we have a valid submission file, & ground truth directory
         if not os.path.exists(ground_truth_dir):
             raise ValueError("ERROR: Ground truths directory "
                              "'%s' does not exist." % ground_truth_dir)
-        if not os.path.exists(results_filename):
-            raise ValueError("ERROR: Results file '%s' does not exist." %
-                             results_filename)
+        for r in results_filenames:
+            if not os.path.exists(r):
+                raise ValueError("ERROR: Results file '%s' does not exist." %
+                                 r)
 
         # We have valid parameters, save them & return
-        self.results_filename = results_filename
+        self.results_filenames = results_filenames
         self.ground_truth_dir = ground_truth_dir
         self.scores_filename = scores_filename
 
@@ -278,46 +279,56 @@ class Evaluator:
         return prob_dist
 
     def evaluate(self):
-        # Open the submission, pulling in the supplied JSON data (ensuring it
-        # is both valid & sanitised as we pull it in)
-        print("Evaluating the performance from results in '%s':\n" %
-              self.results_filename)
-        with open(self.results_filename, 'r') as f:
-            results_data = Evaluator.sanitise_results_data(json.load(f))
+        # Handle a *.zip of results JSONs
+        # TODO
 
-        # Get ground truth data from environment_details fields in results_data
-        # (sanitise each ground truth file as we pull it in)
-        ground_truth_data = []
-        for i in results_data['environment_details']['numbers']:
-            with open(
-                    self._ground_truth_file(
-                        results_data['environment_details']['name'], i),
-                    'r') as f:
-                # NOTE should remove format step in time
-                ground_truth_data.append(
-                    Evaluator._sanitise_ground_truth((json.load(f))))
+        # Iteratively evaluate each of the results JSONs provided, saving the
+        # scores so we can amalgamate them after
+        scores_data = []
+        for r in self.results_filenames:
+            # Open the submission, pulling in the supplied JSON data (ensuring it
+            # is both valid & sanitised as we pull it in)
+            print("EVALUATING PERFORMANCE OF RESULTS IN '%s':\n" % r)
+            with open(r, 'r') as f:
+                results_data = Evaluator.sanitise_results_data(json.load(f))
 
-        # Pick the appropriate evaluation (ensuring the correct number of
-        # ground truth files have been loaded)
-        if results_data['task_details']['type'] == Evaluator._TYPE_SCD:
-            if len(ground_truth_data) != 2:
-                raise ValueError("Scene Change Detection requires exactly"
-                                 "2 environments (%d provided)" %
-                                 len(ground_truth_data))
-            eval_fn = self._evaluate_scd
-        else:
-            if len(ground_truth_data) != 1:
-                raise ValueError("Semantic SLAM requires exactly"
-                                 "1 environment (%d provided)" %
-                                 len(ground_truth_data))
-            eval_fn = self._evaluate_semantic_slam
+            # Get ground truth data from environment_details fields in results_data
+            # (sanitise each ground truth file as we pull it in)
+            ground_truth_data = []
+            for i in results_data['environment_details']['numbers']:
+                with open(
+                        self._ground_truth_file(
+                            results_data['environment_details']['name'], i),
+                        'r') as f:
+                    # NOTE should remove format step in time
+                    ground_truth_data.append(
+                        Evaluator._sanitise_ground_truth((json.load(f))))
 
-        # Perform evaluation, & print the results
-        scores_data = eval_fn(results_data, *ground_truth_data)
-        print("\n\nEvaluation results:\n")
-        pprint.pprint(scores_data)
+            # Pick the appropriate evaluation (ensuring the correct number of
+            # ground truth files have been loaded)
+            if results_data['task_details']['type'] == Evaluator._TYPE_SCD:
+                if len(ground_truth_data) != 2:
+                    raise ValueError("Scene Change Detection requires exactly"
+                                     "2 environments (%d provided)" %
+                                     len(ground_truth_data))
+                eval_fn = self._evaluate_scd
+            else:
+                if len(ground_truth_data) != 1:
+                    raise ValueError("Semantic SLAM requires exactly"
+                                     "1 environment (%d provided)" %
+                                     len(ground_truth_data))
+                eval_fn = self._evaluate_semantic_slam
+
+            # Perform evaluation, & print the results
+            scores_data.append(eval_fn(results_data, *ground_truth_data))
+            print("\nScores for '%s':\n" % r)
+            pprint.pprint(scores_data[-1])
+            print('\n' + '-' * 80 + '\n')
+
+        # Amalgamate all of the produced scores
+        # TODO
 
         # Save the results & finish
         with open(self.scores_filename, 'w') as f:
-            json.dump(scores_data, f)
+            json.dump(scores_data[0], f)
         print("\nDone.")
