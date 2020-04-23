@@ -108,6 +108,35 @@ class Evaluator:
             (self.results_filename, description))
 
     @staticmethod
+    def _create_scores(task_details,
+                       environment_details,
+                       scores_omq,
+                       scores_avg_pairwise,
+                       scores_avg_label,
+                       scores_avg_spatial,
+                       scores_avg_fp_quality,
+                       scores_avg_state_quality=None):
+        return {
+            'task_details': task_details,
+            'environment_details': environment_details,
+            'scores': {
+                'OMQ':
+                    scores_omq,
+                'avg_pairwise':
+                    scores_avg_pairwise,
+                'avg_label':
+                    scores_avg_label,
+                'avg_spatial':
+                    scores_avg_spatial,
+                'avg_fp_quality':
+                    scores_avg_fp_quality,
+                **({} if scores_avg_state_quality is None else {
+                       'avg_state_quality': scores_avg_state_quality
+                   })
+            }
+        }
+
+    @staticmethod
     def _evaluate_scd(results_data, ground_truth1_data, ground_truth2_data):
         # Takes in results data from a BenchBot submission and evaluates the
         # difference map to results
@@ -130,24 +159,16 @@ class Evaluator:
 
         # Grab an evaluator instance, & use it to return some results
         evaluator = OMQ(scd_mode=True)
-        return {
-            'task_details': results_data['task_details'],
-            'environment_details': results_data['environment_details'],
-            'scores': {
-                'OMQ':
-                    evaluator.score([(gt_changes, results_data['objects'])]),
-                'avg_pairwise':
-                    evaluator.get_avg_overall_quality_score(),
-                'avg_label':
-                    evaluator.get_avg_label_score(),
-                'avg_spatial':
-                    evaluator.get_avg_spatial_score(),
-                'avg_fp_quality':
-                    evaluator.get_avg_fp_score(),
-                'avg_state_quality':
-                    evaluator.get_avg_state_score()
-            }
-        }
+        return Evaluator._create_scores(
+            task_details=results_data['task_details'],
+            environment_details=results_data['environment_details'],
+            scores_omq=evaluator.score([(gt_changes, results_data['objects'])
+                                       ]),
+            scores_avg_pairwise=evaluator.get_avg_overall_quality_score(),
+            scores_avg_label=evaluator.get_avg_label_score(),
+            scores_avg_spatial=evaluator.get_avg_spatial_score(),
+            scores_avg_fp_quality=evaluator.get_avg_fp_score(),
+            scores_avg_state_quality=evaluator.get_avg_state_score())
 
     @staticmethod
     def _evaluate_semantic_slam(results_data, ground_truth_data):
@@ -155,27 +176,21 @@ class Evaluator:
         # result using the ground truth data, & then spits out a dict of scores
         # data
 
-        # Get both sets of objects (we should have handled missing fields well
-        # & truly by now, but it can't hurt just to use empty lists if no
-        # objects are found)
-        res_objects = (results_data['objects']
-                       if 'objects' in results_data else [])
+        # Get ground truth objects
         gt_objects = (ground_truth_data['objects']
                       if 'objects' in ground_truth_data else [])
 
         # Grab an evaluator instance, & use it to return some results
         evaluator = OMQ()
-        return {
-            'task_details': results_data['task_details'],
-            'environment_details': results_data['environment_details'],
-            'scores': {
-                'OMQ': evaluator.score([(gt_objects, res_objects)]),
-                'avg_pairwise': evaluator.get_avg_overall_quality_score(),
-                'avg_label': evaluator.get_avg_label_score(),
-                'avg_spatial': evaluator.get_avg_spatial_score(),
-                'avg_fp_quality': evaluator.get_avg_fp_score()
-            }
-        }
+        return Evaluator._create_scores(
+            task_details=results_data['task_details'],
+            environment_details=results_data['environment_details'],
+            scores_omq=evaluator.score([(gt_objects, results_data['objects'])
+                                       ]),
+            scores_avg_pairwise=evaluator.get_avg_overall_quality_score(),
+            scores_avg_label=evaluator.get_avg_label_score(),
+            scores_avg_spatial=evaluator.get_avg_spatial_score(),
+            scores_avg_fp_quality=evaluator.get_avg_fp_score())
 
     @staticmethod
     def _validate_object_data(object_data, object_number, scd=False):
@@ -282,6 +297,8 @@ class Evaluator:
         # Handle a *.zip of results JSONs
         # TODO
 
+        # TODO we need to make sure task_details field is the same for all results!!!
+
         # Iteratively evaluate each of the results JSONs provided, saving the
         # scores so we can amalgamate them after
         scores_data = []
@@ -326,9 +343,31 @@ class Evaluator:
             print('\n' + '-' * 80 + '\n')
 
         # Amalgamate all of the produced scores
-        # TODO
+        scores = Evaluator._create_scores(
+            task_details=scores_data[0]['task_details'],
+            environment_details=[
+                s['environment_details'] for s in scores_data
+            ],
+            scores_omq=np.mean([s['scores']['OMQ'] for s in scores_data]),
+            scores_avg_pairwise=np.mean(
+                [s['scores']['avg_pairwise'] for s in scores_data]),
+            scores_avg_label=np.mean(
+                [s['scores']['avg_label'] for s in scores_data]),
+            scores_avg_spatial=np.mean(
+                [s['scores']['avg_spatial'] for s in scores_data]),
+            scores_avg_fp_quality=np.mean(
+                [s['scores']['avg_fp_quality'] for s in scores_data]),
+            scores_avg_state_quality=(np.mean([
+                s['scores']['avg_state_quality'] for s in scores_data
+            ]) if 'avg_state_quality' in scores_data[0]['scores'] else None),
+        )
 
-        # Save the results & finish
+        # Print the results, save them, & finish
+        print(("\nFinal scores for the '%s:%s:%s' task:\n" %
+               (scores['task_details']['type'],
+                scores['task_details']['control_mode'],
+                scores['task_details']['localisation_mode'])).upper())
+        pprint.pprint(scores)
         with open(self.scores_filename, 'w') as f:
-            json.dump(scores_data[0], f)
+            json.dump(scores, f)
         print("\nDone.")
