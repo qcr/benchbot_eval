@@ -57,7 +57,9 @@ class Evaluator:
                  results_filenames,
                  ground_truth_dir,
                  scores_filename,
-                 print_all=True):
+                 print_all=True,
+                 required_task=None,
+                 required_envs=None):
         # Confirm we have a valid submission file, & ground truth directory
         if not os.path.exists(ground_truth_dir):
             raise ValueError("ERROR: Ground truths directory "
@@ -72,6 +74,8 @@ class Evaluator:
         self.ground_truth_dir = ground_truth_dir
         self.scores_filename = scores_filename
         self.print_all = print_all
+        self.required_task = required_task
+        self.required_envs = required_envs
 
     @staticmethod
     def __lambda_to_text(l):
@@ -96,16 +100,6 @@ class Evaluator:
                     "Key '%s' in '%s' has value '%s', "
                     "which fails the check:\n\t%s" %
                     (k, name, data_dict[k], Evaluator.__lambda_to_text(v)))
-
-    def _ground_truth_file(self, name, number):
-        filename = os.path.join(self.ground_truth_dir,
-                                "%s_%s.json" % (name, number))
-        if not os.path.exists(filename):
-            raise ValueError(
-                "Results request a ground truth for variation "
-                "#%d of environment '%s', but a corresponding ground truth "
-                "file (%s) could not be found." % (number, name, filename))
-        return filename
 
     @staticmethod
     def _create_scores(task_details,
@@ -137,7 +131,7 @@ class Evaluator:
         }
 
     @staticmethod
-    def _evaluate_scd(results_data, ground_truth1_data, ground_truth2_data):
+    def _evaluate_scd(results_data, ground_truth_data):
         # Takes in results data from a BenchBot submission and evaluates the
         # difference map to results
 
@@ -146,10 +140,11 @@ class Evaluator:
         # handle missing fields just in case)
         # NOTE: ground truth uses a flag to determine change state rather than
         # the distribution provided in the submission results
-        gt_objects_1 = (ground_truth1_data['objects']
-                        if 'objects' in ground_truth1_data else [])
-        gt_objects_2 = (ground_truth2_data['objects']
-                        if 'objects' in ground_truth2_data else [])
+        es = Evaluator._get_env_strings(results_data['environment_details'])
+        gt_objects_1 = (ground_truth_data[es[0]]['objects']
+                        if 'objects' in ground_truth_data[es[0]] else [])
+        gt_objects_2 = (ground_truth_data[es[1]]['objects']
+                        if 'objects' in ground_truth_data[es[1]] else [])
         gt_changes = [{
             **o, 'state': 'removed'
         } for o in gt_objects_1 if o not in gt_objects_2]
@@ -176,9 +171,10 @@ class Evaluator:
         # result using the ground truth data, & then spits out a dict of scores
         # data
 
-        # Get ground truth objects
-        gt_objects = (ground_truth_data['objects']
-                      if 'objects' in ground_truth_data else [])
+        # Get ground truth objects from the correct ground truth set
+        gt_data = ground_truth_data[Evaluator._get_env_string(
+            results_data['environment_details'])]
+        gt_objects = (gt_data['objects'] if 'objects' in gt_data else [])
 
         # Grab an evaluator instance, & use it to return some results
         evaluator = OMQ()
@@ -193,7 +189,69 @@ class Evaluator:
             scores_avg_fp_quality=evaluator.get_avg_fp_score())
 
     @staticmethod
+    def _get_task_string(task_details):
+        return "%s:%s:%s" % (task_details['type'],
+                             task_details['control_mode'],
+                             task_details['localisation_mode'])
+
+    @staticmethod
+    def _get_env_string(environment_details):
+        return ":".join([environment_details['name']] +
+                        [str(x) for x in environment_details['numbers']])
+
+    @staticmethod
+    def _get_env_strings(environment_details):
+        # Returns a list of strings referring to an individual environment
+        # scene
+        return ([
+            "%s:%s" % (environment_details['name'], i)
+            for i in environment_details['numbers']
+        ])
+
+    @staticmethod
+    def _ground_truth_file(ground_truth_dir, name, number):
+        filename = os.path.join(ground_truth_dir,
+                                "%s_%s.json" % (name, number))
+        if not os.path.exists(filename):
+            raise ValueError(
+                "Results request a ground truth for variation "
+                "#%d of environment '%s', but a corresponding ground truth "
+                "file (%s) could not be found in '%s'." %
+                (number, name, filename, ground_truth_dir))
+        return filename
+
+    @staticmethod
+    def _load_ground_truth_data(ground_truth_dir, envs_details_list):
+        # Takes a list of envs, & loads the associated ground truth files
+        gtd = {}
+        for e in envs_details_list:
+            env_strs = Evaluator._get_env_strings(e)
+            for i, s in zip(e['numbers'], env_strs):
+                if s not in gtd:
+                    fn = Evaluator._ground_truth_file(ground_truth_dir,
+                                                      e['name'], i)
+                    print("Loading ground truth data from '%s' ..." % fn)
+                    with open(fn, 'r') as f:
+                        # NOTE should remove format step in time
+                        gtd[s] = Evaluator._sanitise_ground_truth(
+                            (json.load(f)))
+                    print("\tDone.")
+        return gtd
+
+    @staticmethod
+    def _sanitise_ground_truth(ground_truth_data):
+        # This code is only needed as we have a discrepancy between the format
+        # of ground_truth_data produced in ground truth generation, & what the
+        # evaluation process expects. Long term, the discrepancy should be
+        # rectified & this code removed.
+        for o in ground_truth_data['objects']:
+            o['class_id'] = cl.get_nearest_class_id(
+                o.pop('class'))  # swap name for ID
+        return ground_truth_data
+
+    @staticmethod
     def _validate_object_data(object_data, object_number, scd=False):
+        # Validates whether an object has all of the required fields
         try:
             Evaluator.__validate(object_data,
                                  Evaluator._REQUIRED_OBJECT_STRUCTURE,
@@ -208,6 +266,7 @@ class Evaluator:
 
     @staticmethod
     def _validate_results_data(results_data):
+        # Validates whether a results dict has all of the required fields
         try:
             Evaluator.__validate(results_data,
                                  Evaluator._REQUIRED_RESULTS_STRUCTURE,
@@ -216,19 +275,52 @@ class Evaluator:
             raise ValueError("Results validation failed: %s" % e)
 
     @staticmethod
-    def _sanitise_ground_truth(ground_truth_data):
-        # This code is only needed as we have a discrepancy between the format
-        # of ground_truth_data produced in ground truth generation, & what the
-        # evaluation process expects. Long term, the discrepancy should be
-        # rectified & this code removed.
-        for o in ground_truth_data['objects']:
-            o['class_id'] = cl.get_nearest_class_id(
-                o.pop('class'))  # swap name for ID
-        return ground_truth_data
+    def _validate_results_set(results_set,
+                              required_task=None,
+                              required_envs=None):
+        # Validates whether a set of results meets requirements as a set (i.e.
+        # all tasks the same, & possible task / environment contstraints)
+        task_str = required_task
+        env_strs = []
+        for f, d in results_set.items():
+            s = Evaluator._get_task_string(d['task_details'])
+            if task_str is None:
+                task_str = s
+            elif s != task_str and required_task is None:
+                raise ValueError(
+                    "JSON result files can only be evaluated together if "
+                    "they are for the same task. File '%s' was for task '%s', "
+                    "whereas file '%s' was for task '%s'." %
+                    (results_set[0][0], task_str, f, s))
+            elif s != task_str:
+                raise ValueError(
+                    "Evaluator was configured only accept results for task "
+                    "'%s', but results file '%s' is for task '%s'" %
+                    (required_task, f, s))
+
+            env_strs.append(Evaluator._get_env_string(
+                d['environment_details']))
+            if (required_envs is not None and
+                    env_strs[-1] not in required_envs):
+                raise ValueError(
+                    "Evaluator was configured to require environments: %s. "
+                    "Results file '%s' is for environment '%s' which is not "
+                    "in the list." %
+                    (", ".join(required_envs), f, env_strs[-1]))
+
+        # Lastly, ensure we have all required environments if relevant
+        if required_envs is not None:
+            for e in required_envs:
+                if e not in env_strs:
+                    raise ValueError(
+                        "Evaluator was configured to require environments: "
+                        "%s. No result was found for environment '%s'." %
+                        (", ".join(required_envs), e))
 
     @staticmethod
     def sanitise_results_data(results_data):
         is_scd = results_data['task_details']['type'] == Evaluator._TYPE_SCD
+
         # Validate the provided results data
         Evaluator._validate_results_data(results_data)
         for i, o in enumerate(results_data['objects']):
@@ -236,9 +328,9 @@ class Evaluator:
 
         # Use the default class_list if none is provided
         if 'class_list' not in results_data or not results_data['class_list']:
-            # warnings.warn(
-            #     "No 'class_list' field provided; assuming results have used "
-            #     "our default class list")
+            warnings.warn(
+                "No 'class_list' field provided; assuming results have used "
+                "our default class list")
             results_data['class_list'] = cl.CLASS_LIST
 
         # Sanitise all probability distributions for labels & states if
@@ -294,52 +386,45 @@ class Evaluator:
         return prob_dist
 
     def evaluate(self):
-        # Handle a *.zip of results JSONs
-        # TODO
+        # Iteratively load data from each results file (turning *.zips into a
+        # list of JSON results), & sanitise the data
+        results_set = {}  # dict of results data, with filename as the key
+        print("LOADING REQUIRED DATA FOR %d JSON RESULT FILES:\n" %
+              len(self.results_filenames))
+        for r in self.results_filenames:
+            print("Loading data from '%s' ..." % r)
+            with open(r, 'r') as f:
+                results_set[r] = Evaluator.sanitise_results_data(json.load(f))
+            print("\tDone.")
 
-        # TODO we need to make sure task_details field is the same for all results!!!
+        # Ensure the results set meets any requirements that may exist (all
+        # must be same task type, may have to be a required task type, may have
+        # to match a required list of environments)
+        Evaluator._validate_results_set(results_set, self.required_task,
+                                        self.required_envs)
+
+        # Try & load all of the requested ground truth maps (failing loudly if
+        # a required ground truth can't be found)
+        ground_truth_data = Evaluator._load_ground_truth_data(
+            self.ground_truth_dir,
+            [r['environment_details'] for r in results_set.values()])
+        print('\n' + '-' * 80 + '\n')
 
         # Iteratively evaluate each of the results JSONs provided, saving the
         # scores so we can amalgamate them after
         scores_data = []
-        for r in self.results_filenames:
-            # Open the submission, pulling in the supplied JSON data (ensuring it
-            # is both valid & sanitised as we pull it in)
-            print("EVALUATING PERFORMANCE OF RESULTS IN '%s':\n" % r)
-            with open(r, 'r') as f:
-                results_data = Evaluator.sanitise_results_data(json.load(f))
+        for f, d in results_set.items():
+            print("EVALUATING PERFORMANCE OF RESULTS IN '%s':\n" % f)
 
-            # Get ground truth data from environment_details fields in results_data
-            # (sanitise each ground truth file as we pull it in)
-            ground_truth_data = []
-            for i in results_data['environment_details']['numbers']:
-                with open(
-                        self._ground_truth_file(
-                            results_data['environment_details']['name'], i),
-                        'r') as f:
-                    # NOTE should remove format step in time
-                    ground_truth_data.append(
-                        Evaluator._sanitise_ground_truth((json.load(f))))
+            # Perform evaluation, selecting the appropriate evaluation function
+            scores_data.append(
+                (self._evaluate_scd
+                 if d['task_details']['type'] == Evaluator._TYPE_SCD else
+                 self._evaluate_semantic_slam)(d, ground_truth_data))
 
-            # Pick the appropriate evaluation (ensuring the correct number of
-            # ground truth files have been loaded)
-            if results_data['task_details']['type'] == Evaluator._TYPE_SCD:
-                if len(ground_truth_data) != 2:
-                    raise ValueError("Scene Change Detection requires exactly"
-                                     "2 environments (%d provided)" %
-                                     len(ground_truth_data))
-                eval_fn = self._evaluate_scd
-            else:
-                if len(ground_truth_data) != 1:
-                    raise ValueError("Semantic SLAM requires exactly"
-                                     "1 environment (%d provided)" %
-                                     len(ground_truth_data))
-                eval_fn = self._evaluate_semantic_slam
-
-            # Perform evaluation, & print the results
-            scores_data.append(eval_fn(results_data, *ground_truth_data))
+            # Print the results if allowed, otherwise just say we're done
             if self.print_all:
-                print("\nScores for '%s':\n" % r)
+                print("\nScores for '%s':\n" % f)
                 pprint.pprint(scores_data[-1])
             else:
                 print("Done")
