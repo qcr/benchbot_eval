@@ -102,11 +102,6 @@ class Evaluator:
                 "file (%s) could not be found." % (number, name, filename))
         return filename
 
-    def _raise_format_error(self, description):
-        raise ValueError(
-            "Cannot perform evaluation on results contained in '%s'. %s" %
-            (self.results_filename, description))
-
     @staticmethod
     def _create_scores(task_details,
                        environment_details,
