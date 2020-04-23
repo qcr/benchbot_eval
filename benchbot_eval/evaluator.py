@@ -53,7 +53,11 @@ class Evaluator:
         (r'\n', r''), (r'^\((.*)\)$', r'\1')
     ]
 
-    def __init__(self, results_filenames, ground_truth_dir, scores_filename):
+    def __init__(self,
+                 results_filenames,
+                 ground_truth_dir,
+                 scores_filename,
+                 print_all=True):
         # Confirm we have a valid submission file, & ground truth directory
         if not os.path.exists(ground_truth_dir):
             raise ValueError("ERROR: Ground truths directory "
@@ -67,6 +71,7 @@ class Evaluator:
         self.results_filenames = results_filenames
         self.ground_truth_dir = ground_truth_dir
         self.scores_filename = scores_filename
+        self.print_all = print_all
 
     @staticmethod
     def __lambda_to_text(l):
@@ -231,9 +236,9 @@ class Evaluator:
 
         # Use the default class_list if none is provided
         if 'class_list' not in results_data or not results_data['class_list']:
-            warnings.warn(
-                "No 'class_list' field provided; assuming results have used "
-                "our default class list")
+            # warnings.warn(
+            #     "No 'class_list' field provided; assuming results have used "
+            #     "our default class list")
             results_data['class_list'] = cl.CLASS_LIST
 
         # Sanitise all probability distributions for labels & states if
@@ -333,8 +338,11 @@ class Evaluator:
 
             # Perform evaluation, & print the results
             scores_data.append(eval_fn(results_data, *ground_truth_data))
-            print("\nScores for '%s':\n" % r)
-            pprint.pprint(scores_data[-1])
+            if self.print_all:
+                print("\nScores for '%s':\n" % r)
+                pprint.pprint(scores_data[-1])
+            else:
+                print("Done")
             print('\n' + '-' * 80 + '\n')
 
         # Amalgamate all of the produced scores
