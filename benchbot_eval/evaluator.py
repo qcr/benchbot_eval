@@ -7,6 +7,8 @@ import pprint
 import re
 import numpy as np
 import warnings
+import zipfile
+
 from .omq import OMQ
 from . import class_list as cl
 
@@ -46,6 +48,8 @@ class Evaluator:
     _REQUIRED_SCD_OBJECT_STRUCTURE = {
         'state_probs': lambda value: len(value) == 3
     }
+
+    _ZIP_IGNORE = ["submission.json"]
 
     __LAMBDA_REGEX = [
         (r'Evaluator._TYPE_([^,^\]]*)', lambda x: "'%s'" % x.group(1).lower()),
@@ -223,7 +227,7 @@ class Evaluator:
     @staticmethod
     def _load_ground_truth_data(ground_truth_dir, envs_details_list):
         # Takes a list of envs, & loads the associated ground truth files
-        gtd = {}
+        gtd = {}  # Dict of ground truth data, with env_string as keys
         for e in envs_details_list:
             env_strs = Evaluator._get_env_strings(e)
             for i, s in zip(e['numbers'], env_strs):
@@ -237,6 +241,36 @@ class Evaluator:
                             (json.load(f)))
                     print("\tDone.")
         return gtd
+
+    @staticmethod
+    def _load_results_data(results_filenames):
+        # Takes a list of filenames & pulls all data from JSON & *.zip files
+        # (sorry... nesting abomination...)
+        results = {}  # Dict of provided data, with filenames as keys
+        for r in results_filenames:
+            print("Loading data from '%s' ..." % r)
+            if zipfile.is_zipfile(r):
+                with zipfile.ZipFile(r, 'r') as z:
+                    for f in z.filelist:
+                        if f.filename in Evaluator._ZIP_IGNORE:
+                            print("\tIgnoring file '%s'" % f.filename)
+                        else:
+                            with z.open(f, 'r') as zf:
+                                d = None
+                                try:
+                                    d = json.load(zf)
+                                except:
+                                    print("\tSkipping file '%s'" % f.filename)
+                                    continue  # Failure is fine / expected here!
+                                print("\tExtracting data from file '%s'" %
+                                      f.filename)
+                                results[z.filename + ':' + f.filename] = (
+                                    Evaluator.sanitise_results_data(d))
+            else:
+                with open(r, 'r') as f:
+                    results[r] = Evaluator.sanitise_results_data(json.load(f))
+        print("\tDone.")
+        return results
 
     @staticmethod
     def _sanitise_ground_truth(ground_truth_data):
@@ -388,14 +422,9 @@ class Evaluator:
     def evaluate(self):
         # Iteratively load data from each results file (turning *.zips into a
         # list of JSON results), & sanitise the data
-        results_set = {}  # dict of results data, with filename as the key
-        print("LOADING REQUIRED DATA FOR %d JSON RESULT FILES:\n" %
+        print("LOADING REQUIRED DATA FOR %d PROVIDED FILES:\n" %
               len(self.results_filenames))
-        for r in self.results_filenames:
-            print("Loading data from '%s' ..." % r)
-            with open(r, 'r') as f:
-                results_set[r] = Evaluator.sanitise_results_data(json.load(f))
-            print("\tDone.")
+        results_set = Evaluator._load_results_data(self.results_filenames)
 
         # Ensure the results set meets any requirements that may exist (all
         # must be same task type, may have to be a required task type, may have
