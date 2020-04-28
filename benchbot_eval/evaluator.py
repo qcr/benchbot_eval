@@ -6,6 +6,8 @@ import os
 import pprint
 import re
 import numpy as np
+import subprocess
+import sys
 import warnings
 import zipfile
 
@@ -214,8 +216,9 @@ class Evaluator:
 
     @staticmethod
     def _ground_truth_file(ground_truth_dir, name, number):
-        filename = os.path.join(ground_truth_dir,
-                                "%s_%s.json" % (name, number))
+        filename = subprocess.check_output(
+            "find %s -name '%s_%s.json'" % (ground_truth_dir, name, number),
+            shell=True).decode(sys.stdout.encoding).split('\n')[0]
         if not os.path.exists(filename):
             raise ValueError(
                 "Results request a ground truth for variation "
