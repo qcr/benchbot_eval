@@ -491,3 +491,4 @@ class Evaluator:
         with open(self.scores_filename, 'w') as f:
             json.dump(scores, f)
         print("\nDone.")
+        return scores
