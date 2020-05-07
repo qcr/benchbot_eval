@@ -331,7 +331,7 @@ class Evaluator:
                     (results_set[0][0], task_str, f, s))
             elif s != task_str:
                 raise ValueError(
-                    "Evaluator was configured only accept results for task "
+                    "Evaluator was configured to only accept results for task "
                     "'%s', but results file '%s' is for task '%s'" %
                     (required_task, f, s))
 
