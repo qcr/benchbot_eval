@@ -228,6 +228,28 @@ class IoU:
        
         return iou_bev, iou_3D
 
+    def dict_prop_fraction(self, prop_dict, gt_dict):
+        """
+        Function for determining the proportion of a proposal is covered by the ground-truth
+        :param prop_dict:
+        :param gt_dict:
+        :return:
+        """
+        corners1, v1 = self.get_bbox3D(prop_dict['extent'], 0.0, prop_dict['centroid'])
+        corners2, v2 = self.get_bbox3D(gt_dict['extent'], 0.0, gt_dict['centroid'])
+
+        poly1, area1 = self.__get_polygonXY(corners1)
+        poly2, area2 = self.__get_polygonXY(corners2)
+
+        poly_int_xy, area_int_xy = self.__get_intersestionin2D(poly1, poly2)
+
+        h_int = self.__get_ovelapHeight(corners1, corners2)
+
+        vol_int = h_int * area_int_xy
+
+        return vol_int / v1
+
+
 
 
     

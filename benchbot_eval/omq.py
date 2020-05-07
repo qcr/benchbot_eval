@@ -448,6 +448,19 @@ def _calc_qual_map(gt_objects, object_proposals, scd_mode):
                 false_negatives += 1
             # Handle false positives
             if col_id < len(object_proposals):
+                # Check if false positive is actually a proposal of an isgroup object that has a better match
+                # only ignored if best match otherwise would be isgroup object (non-zero quality) and max class matches
+                if np.sum(overall_quality_table[:, col_id]) > 0:
+                    # check if max match class is a grouped object
+                    best_gt_idx = np.argmax(overall_quality_table[:, col_id])
+                    if 'isgroup' in gt_objects[best_gt_idx] and gt_objects[best_gt_idx]['isgroup']:
+                        # check if the class of the proposal matches the class of the object
+                        # (ignoring final class which should be background)
+                        if np.argmax(object_proposals[col_id]['label_probs'][:-1]) == gt_objects[best_gt_idx]['class_id']:
+                            # Check if at least 50% of the proposal is within the ground-truth object
+                            if _IOU_TOOL.dict_prop_fraction(object_proposals[col_id], gt_objects[best_gt_idx]) >= 0.5:
+                                # if all criteria met, skip this detection in both fp quality and number of fps
+                                continue
                 false_positives += 1
                 false_positive_idxs.append(col_id)
 
