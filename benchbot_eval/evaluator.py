@@ -222,7 +222,7 @@ class Evaluator:
         if not os.path.exists(filename):
             raise ValueError(
                 "Results request a ground truth for variation "
-                "#%d of environment '%s', but a corresponding ground truth "
+                "#%s of environment '%s', but a corresponding ground truth "
                 "file (%s) could not be found in '%s'." %
                 (number, name, filename, ground_truth_dir))
         return filename
