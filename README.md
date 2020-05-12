@@ -1,7 +1,7 @@
-**NOTE: this software is part of the BenchBot software stack, and not intended to be run in isolation (although it can be installed independently through pip & run on results files if desired). For a working BenchBot system, please install the BenchBot software stack by following the instructions [here](https://github.com/RoboticVisionOrg/benchbot).**
+**NOTE: this software is part of the BenchBot software stack, and not intended to be run in isolation (although it can be installed independently through pip & run on results files if desired). For a working BenchBot system, please install the BenchBot software stack by following the instructions [here](https://github.com/roboticvisionorg/benchbot).**
 
 # BenchBot Evaluation
-BenchBot Evaluation is a library of functions used to evaluate the performance of a BenchBot system in two core semantic scene understanding tasks: semantic SLAM, and scene change detection. The easiest way to use this module is through the helper scripts provided with the [BenchBot software stack](https://github.com/RoboticVisionOrg/benchbot).
+BenchBot Evaluation is a library of functions used to evaluate the performance of a BenchBot system in two core semantic scene understanding tasks: semantic SLAM, and scene change detection. The easiest way to use this module is through the helper scripts provided with the [BenchBot software stack](https://github.com/roboticvisionorg/benchbot).
 
 ## Installing & performing evaluation with BenchBot Evaluation
 
@@ -88,7 +88,7 @@ Notes:
     }
     ```
 
-    The above dicts can  be obtained at runtime through the `BenchBot.task_details` & `BenchBot.environment_details` [API properties](https://github.com/RoboticVisionOrg/benchbot_api).
+    The above dicts can  be obtained at runtime through the `BenchBot.task_details` & `BenchBot.environment_details` [API properties](https://github.com/roboticvisionorg/benchbot_api).
 - For `'task_details'`:
     - `'type'` must be either `'semantic_slam'` or `'scd'`
     - `'control_mode'` must be either `'passive'` or `'active'`
@@ -110,7 +110,7 @@ Notes:
 
 ## Generating results for evaluation
 
-An algorithm attempting to solve a semantic scene understanding task only has to fill in the list of `'objects'` and the `'class_list'` field (only if a custom class list has been used); everything else can be pre-populated using the [provided BenchBot API methods](https://github.com/RoboticVisionOrg/benchbot_api). Using these helper methods, only a few lines of code is needed to create results that can be used with our evaluator:
+An algorithm attempting to solve a semantic scene understanding task only has to fill in the list of `'objects'` and the `'class_list'` field (only if a custom class list has been used); everything else can be pre-populated using the [provided BenchBot API methods](https://github.com/roboticvisionorg/benchbot_api). Using these helper methods, only a few lines of code is needed to create results that can be used with our evaluator:
 
 ```python
 from benchbot_api import BenchBot

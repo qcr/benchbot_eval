@@ -331,19 +331,21 @@ class Evaluator:
                     (results_set[0][0], task_str, f, s))
             elif s != task_str:
                 raise ValueError(
-                    "Evaluator was configured only accept results for task "
+                    "Evaluator was configured to only accept results for task "
                     "'%s', but results file '%s' is for task '%s'" %
                     (required_task, f, s))
 
-            env_strs.append(Evaluator._get_env_string(
-                d['environment_details']))
-            if (required_envs is not None and
-                    env_strs[-1] not in required_envs):
+            s = Evaluator._get_env_string(d['environment_details'])
+            if (required_envs is not None and s not in required_envs):
                 raise ValueError(
                     "Evaluator was configured to require environments: %s. "
                     "Results file '%s' is for environment '%s' which is not "
-                    "in the list." %
-                    (", ".join(required_envs), f, env_strs[-1]))
+                    "in the list." % (", ".join(required_envs), f, s))
+            elif s in env_strs:
+                raise ValueError(
+                    "Evaluator received multiple results for environment '%s'. "
+                    "Only one result is permitted per environment." % s)
+            env_strs.append(s)
 
         # Lastly, ensure we have all required environments if relevant
         if required_envs is not None:
