@@ -11,9 +11,6 @@ import sys
 import warnings
 import zipfile
 
-from .omq import OMQ
-from . import class_list as cl
-
 # Needed to simply stop it printing the source code text with the warning...
 warnings.formatwarning = (lambda msg, cat, fn, ln, line: "%s:%d: %s: %s\n" %
                           (fn, ln, cat.__name__, msg))
