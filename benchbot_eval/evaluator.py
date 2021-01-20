@@ -20,37 +20,6 @@ warnings.formatwarning = (lambda msg, cat, fn, ln, line: "%s:%d: %s: %s\n" %
 
 
 class Evaluator:
-    _TYPE_SEMANTIC_SLAM = 'semantic_slam'
-    _TYPE_SCD = 'scd'
-
-    _REQUIRED_RESULTS_STRUCTURE = {
-        'task_details': {
-            'type': (lambda value: value in
-                     [Evaluator._TYPE_SEMANTIC_SLAM, Evaluator._TYPE_SCD]),
-            'control_mode':
-                lambda value: value in ['passive', 'active'],
-            'localisation_mode':
-                lambda value: value in ['ground_truth', 'dead_reckoning']
-        },
-        'environment_details': {
-            'name':
-                None,
-            'numbers': (lambda value: type(value) is list and all(
-                int(x) in range(1, 6) for x in value))
-        },
-        'objects': None
-    }
-
-    _REQUIRED_OBJECT_STRUCTURE = {
-        'label_probs': None,
-        'centroid': lambda value: len(value) == 3,
-        'extent': lambda value: len(value) == 3
-    }
-
-    _REQUIRED_SCD_OBJECT_STRUCTURE = {
-        'state_probs': lambda value: len(value) == 3
-    }
-
     _ZIP_IGNORE = ["submission.json"]
 
     __LAMBDA_REGEX = [
@@ -121,15 +90,15 @@ class Evaluator:
             'environment_details': environment_details,
             'scores': {
                 'OMQ':
-                    scores_omq,
+                scores_omq,
                 'avg_pairwise':
-                    scores_avg_pairwise,
+                scores_avg_pairwise,
                 'avg_label':
-                    scores_avg_label,
+                scores_avg_label,
                 'avg_spatial':
-                    scores_avg_spatial,
+                scores_avg_spatial,
                 'avg_fp_quality':
-                    scores_avg_fp_quality,
+                scores_avg_fp_quality,
                 **({} if scores_avg_state_quality is None else {
                        'avg_state_quality': scores_avg_state_quality
                    })
@@ -164,7 +133,7 @@ class Evaluator:
             task_details=results_data['task_details'],
             environment_details=results_data['environment_details'],
             scores_omq=evaluator.score([(gt_changes, results_data['objects'])
-                                       ]),
+                                        ]),
             scores_avg_pairwise=evaluator.get_avg_overall_quality_score(),
             scores_avg_label=evaluator.get_avg_label_score(),
             scores_avg_spatial=evaluator.get_avg_spatial_score(),
@@ -188,7 +157,7 @@ class Evaluator:
             task_details=results_data['task_details'],
             environment_details=results_data['environment_details'],
             scores_omq=evaluator.score([(gt_objects, results_data['objects'])
-                                       ]),
+                                        ]),
             scores_avg_pairwise=evaluator.get_avg_overall_quality_score(),
             scores_avg_label=evaluator.get_avg_label_score(),
             scores_avg_spatial=evaluator.get_avg_spatial_score(),
@@ -452,9 +421,9 @@ class Evaluator:
 
             # Perform evaluation, selecting the appropriate evaluation function
             scores_data.append(
-                (self._evaluate_scd
-                 if d['task_details']['type'] == Evaluator._TYPE_SCD else
-                 self._evaluate_semantic_slam)(d, ground_truth_data))
+                (self._evaluate_scd if d['task_details']['type']
+                 == Evaluator._TYPE_SCD else self._evaluate_semantic_slam)(
+                     d, ground_truth_data))
 
             # Print the results if allowed, otherwise just say we're done
             if self.print_all:
