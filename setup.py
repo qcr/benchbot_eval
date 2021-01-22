@@ -13,7 +13,7 @@ setup(
     long_description=long_description,
     long_description_content_type='text/markdown',
     packages=find_packages(),
-    install_requires=['numpy', 'shapely'],
+    install_requires=['numpy', 'pickle', 'shapely'],
     classifiers=(
         "Programming Language :: Python :: 2",
         "Programming Language :: Python :: 2.7",

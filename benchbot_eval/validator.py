@@ -1,7 +1,10 @@
 import json
+import pickle
 import textwrap
 import yaml
 import zipfile
+
+DUMP_LOCATION = '/tmp/benchbot_eval_validator_dump'
 
 FILE_PATH_KEY = '_file_path'
 
@@ -64,6 +67,13 @@ class Validator:
 
         self.required_task = required_task
         self.required_envs = required_envs
+
+        self.validate_results_data()
+        self.dump()
+
+    def dump(self):
+        with open(DUMP_LOCATION, 'wb') as f:
+            pickle.dump(self, f)
 
     def validate_results_data(self):
         print("Validating data in %d results files:" %
