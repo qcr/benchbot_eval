@@ -7,6 +7,7 @@ import zipfile
 DUMP_LOCATION = '/tmp/benchbot_eval_validator_dump'
 
 FILE_PATH_KEY = '_file_path'
+SKIP_KEY = "SKIP"
 
 
 def env_string(envs_data):
@@ -52,9 +53,6 @@ def load_yaml_list(filenames_list):
 
 
 class Validator:
-
-    SKIP_KEY = "SKIP"
-
     def __init__(self,
                  results_filenames,
                  formats_filenames,
@@ -104,9 +102,8 @@ class Validator:
                 "\nFollowing results will be skipped due to 'required_task=%s':"
                 % self.required_task)
             for k, v in self.results_data.items():
-                v[Validator.SKIP_KEY] = (v['task_details']['name'] !=
-                                         self.required_task)
-                if v[Validator.SKIP_KEY]:
+                v[SKIP_KEY] = (v['task_details']['name'] != self.required_task)
+                if v[SKIP_KEY]:
                     print("\t%s" % k)
 
         if self.required_envs:
@@ -127,7 +124,7 @@ class Validator:
                 print("\n\t".join("%s (%s)" % (s, env_strings[s])
                                   for s in skipped))
                 for s in skipped:
-                    self.results_data[s][Validator.SKIP_KEY] = True
+                    self.results_data[s][SKIP_KEY] = True
             else:
                 print("\tNone.")
 
