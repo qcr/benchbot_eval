@@ -1,8 +1,14 @@
 import json
+import textwrap
 import yaml
 import zipfile
 
 FILE_PATH_KEY = '_file_path'
+
+
+def env_string(envs_data):
+    return "%s:%s" % (envs_data[0]['name'], ":".join(
+        str(e['variant']) for e in envs_data))
 
 
 def load_results(results_filenames):
@@ -56,6 +62,9 @@ class Validator:
         self.ground_truth_data = load_yaml_list(ground_truths_filenames)
         self.results_data = load_results(results_filenames)
 
+        self.required_task = required_task
+        self.required_envs = required_envs
+
     def validate_results_data(self):
         print("Validating data in %d results files:" %
               len(self.results_data.keys()))
@@ -71,22 +80,55 @@ class Validator:
                 and all('name' in e for e in v['environment_details'])), (
                     "Results are missing the bare minimum environment details "
                     "(at least 1 item with a 'name' field)")
+            assert all(
+                e['name'] == v['environment_details'][0]['name']
+                for e in v['environment_details']), (
+                    "Results have multiple environments, rather than multiple "
+                    "variants of a single environment")
             assert 'results' in v, "Results has no 'results' field"
 
             print("\t\tPassed.")
 
         if self.required_task:
             print(
-                "Following results will be skipped due to 'required_task=%s':"
+                "\nFollowing results will be skipped due to 'required_task=%s':"
                 % self.required_task)
             for k, v in self.results_data.items():
-                v[SKIP_KEY] = v['task_details']['name'] != self.required_task
-                if v[SKIP_KEY]:
+                v[Validator.SKIP_KEY] = (v['task_details']['name'] !=
+                                         self.required_task)
+                if v[Validator.SKIP_KEY]:
                     print("\t%s" % k)
 
         if self.required_envs:
-            print(
-                "Following results will be skipped due to 'required_envs=%s':"
-                % self.required_envs)
+            print("\n%s\n%s" %
+                  ("Following results will be skipped due to",
+                   textwrap.fill("'required_envs=%s':" % self.required_envs,
+                                 80)))
+            env_strings = {
+                k: env_string(v['environment_details'])
+                for k, v in self.results_data.items()
+            }
+            skipped = [
+                k for k, v in self.results_data.items()
+                if env_strings[k] not in self.required_envs
+            ]
+            if skipped:
+                print("\t", end="")
+                print("\n\t".join("%s (%s)" % (s, env_strings[s])
+                                  for s in skipped))
+                for s in skipped:
+                    self.results_data[s][Validator.SKIP_KEY] = True
+            else:
+                print("\tNone.")
+
+            missed = [
+                e for e in self.required_envs if e not in env_strings.values()
+            ]
+            if missed:
+                print("\n%s" % textwrap.fill(
+                    "WARNING the following required environments have "
+                    "no results (an empty result will be used instead):", 80))
+                print("\t", end="")
+                print("\n\t".join(missed))
 
         return True
