@@ -4,7 +4,15 @@ from . import helpers
 
 
 class Evaluator:
-    def __init__(self, evaluation_methods_filenames, skip_load=False):
+    def __init__(self,
+                 evaluation_method_filename,
+                 ground_truths_filenames,
+                 skip_load=False):
+        self.evaluation_method_data = helpers.load_yaml(
+            evaluation_method_filename)
+        self.ground_truths_data = helpers.load_yaml_list(
+            ground_truths_filenames)
+
         self.formats_data = None
         self.ground_truth_data = None
         self.results_data = None

@@ -58,10 +58,10 @@ def load_results(results_filenames):
     return results
 
 
+def load_yaml(filename):
+    with open(filename, 'r') as f:
+        return yaml.safe_load(f)
+
+
 def load_yaml_list(filenames_list):
-    return [{
-        **{
-            FILE_PATH_KEY: f
-        },
-        **yaml.safe_load(open(f, 'r'))
-    } for f in filenames_list]
+    return [{**{FILE_PATH_KEY: f}, **load_yaml(f)} for f in filenames_list]

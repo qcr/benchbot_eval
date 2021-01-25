@@ -8,12 +8,9 @@ class Validator:
     def __init__(self,
                  results_filenames,
                  formats_filenames,
-                 ground_truths_filenames,
                  required_task=None,
                  required_envs=None):
         self.formats_data = helpers.load_yaml_list(formats_filenames)
-        self.ground_truth_data = helpers.load_yaml_list(
-            ground_truths_filenames)
         self.results_data = helpers.load_results(results_filenames)
 
         self.required_task = required_task
