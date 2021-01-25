@@ -102,6 +102,7 @@ class Validator:
         if not fns or 'validate' not in fns:
             print("\t\tWARNING: skipping format validation "
                   "('%s' has no validate fn)" % format_data['name'])
+            return
         fns['validate'](result_data['results'])
 
     def dump(self):
