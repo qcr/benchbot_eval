@@ -5,6 +5,12 @@ from . import helpers
 
 class Evaluator:
     def __init__(self, evaluation_methods_filenames, skip_load=False):
+        self.formats_data = None
+        self.ground_truth_data = None
+        self.results_data = None
+
+        self.required_task = None
+        self.required_envs = None
 
         if not skip_load:
             self.load_validator()
