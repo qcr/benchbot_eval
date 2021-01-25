@@ -14,4 +14,11 @@ class Evaluator:
             self.__dict__.update(pickle.load(f).__dict__)
 
     def evaluate(self):
-        print(self.__dict__)
+        # Ensure we have some valid results
+        valid_results = [
+            k for k, v in self.results_data.items() if not v[SKIP_KEY]
+        ]
+        if not valid_results:
+            print("Exiting, as no valid results were provided.")
+
+        print("Running: %s" % valid_results)

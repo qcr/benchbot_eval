@@ -1,5 +1,9 @@
+import importlib
 import json
+import os
 import pickle
+import re
+import sys
 import textwrap
 import yaml
 import zipfile
@@ -13,6 +17,19 @@ SKIP_KEY = "SKIP"
 def env_string(envs_data):
     return "%s:%s" % (envs_data[0]['name'], ":".join(
         str(e['variant']) for e in envs_data))
+
+
+def load_functions(data):
+    if 'functions' not in data:
+        return {}
+    sys.path.insert(0, os.path.dirname(data[FILE_PATH_KEY]))
+    ret = {
+        k: getattr(importlib.import_module(re.sub('\.[^\.]*$', "", v)),
+                   re.sub('^.*\.', "", v))
+        for k, v in data['functions'].items()
+    }
+    del sys.path[0]
+    return ret
 
 
 def load_results(results_filenames):
@@ -69,6 +86,24 @@ class Validator:
         self.validate_results_data()
         self.dump()
 
+    def _validate_result(self, result_data):
+        # Attempt to load the results format
+        format_data = next(
+            (f for f in self.formats_data
+             if f['name'] == result_data['task_details']['results_format']),
+            None)
+        assert format_data, textwrap.fill(
+            "Results declare their format as '%s', "
+            "but this format isn't installed in your BenchBot installation" %
+            result_data['task_details']['results_format'], 80)
+
+        # Call the validation function if it exists
+        fns = load_functions(format_data)
+        if not fns or 'validate' not in fns:
+            print("\t\tWARNING: skipping format validation "
+                  "('%s' has no validate fn)" % format_data['name'])
+        fns['validate'](result_data['results'])
+
     def dump(self):
         with open(DUMP_LOCATION, 'wb') as f:
             pickle.dump(self, f)
@@ -94,8 +129,9 @@ class Validator:
                     "Results have multiple environments, rather than multiple "
                     "variants of a single environment")
             assert 'results' in v, "Results has no 'results' field"
-
+            self._validate_result(v)
             print("\t\tPassed.")
+            v[SKIP_KEY] = False
 
         if self.required_task:
             print(
