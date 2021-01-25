@@ -112,4 +112,12 @@ class Validator:
                 print("\t", end="")
                 print("\n\t".join(missed))
 
+        tasks = list(
+            set([
+                r['task_details']['name'] for r in self.results_data.values()
+            ]))
+        assert len(tasks) == 1, textwrap.fill(
+            "Results are not all for the same task, "
+            "& therefore can't be evaluated together. "
+            "Received results for tasks '%s' " % tasks, 80)
         return True
