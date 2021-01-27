@@ -31,7 +31,7 @@ class Validator:
             result_data['task_details']['results_format'], 80)
 
         # Call the validation function if it exists
-        fns = helpers.load_functions(format_data)
+        fns = bam.load_functions(format_data)
         if not fns or 'validate' not in fns:
             print("\t\tWARNING: skipping format validation "
                   "('%s' has no validate fn)" % format_data['name'])
