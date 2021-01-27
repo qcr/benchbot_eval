@@ -4,17 +4,10 @@ from . import helpers
 
 
 class Evaluator:
-    def __init__(self,
-                 evaluation_method_filename,
-                 ground_truths_filenames,
-                 skip_load=False):
+    def __init__(self, evaluation_method_filename, skip_load=False):
         self.evaluation_method_data = helpers.load_yaml(
             evaluation_method_filename)
-        self.ground_truths_data = helpers.load_yaml_list(
-            ground_truths_filenames)
 
-        self.formats_data = None
-        self.ground_truth_data = None
         self.results_data = None
 
         self.required_task = None
@@ -36,5 +29,19 @@ class Evaluator:
             print("Exiting, as no valid results were provided.")
 
         # Iterate through results, attempting evaluation
+        supported_formats = self.evaluation_method_data[
+            'valid_ground_truth_formats']
         for k, v in self.results_data.items():
-            print("Running: %s" % valid_results)
+            # Find a usable ground truth (one of supported formats, & for same
+            # environment as this result
+            gt = next((g for g in self.ground_truth_data
+                       if helpers.env_string(g['environment_details']) ==
+                       helpers.env_string(v['environment_details']) and g['']),
+                      None)
+
+            # Score the result
+
+            # Print the results (if allowed)
+
+        # Amalgamate all of the produced scores if supported by evaluation
+        # method

@@ -1,16 +1,16 @@
 import pickle
 import textwrap
 
+from benchbot_addons import manager as bam
+
 from . import helpers
 
 
 class Validator:
     def __init__(self,
                  results_filenames,
-                 formats_filenames,
                  required_task=None,
                  required_envs=None):
-        self.formats_data = helpers.load_yaml_list(formats_filenames)
         self.results_data = helpers.load_results(results_filenames)
 
         self.required_task = required_task
@@ -21,10 +21,10 @@ class Validator:
 
     def _validate_result(self, result_data):
         # Attempt to load the results format
-        format_data = next(
-            (f for f in self.formats_data
-             if f['name'] == result_data['task_details']['results_format']),
-            None)
+        format_data = bam.get_match(
+            "formats",
+            [("name", result_data['task_details']['results_format'])],
+            return_data=True)
         assert format_data, textwrap.fill(
             "Results declare their format as '%s', "
             "but this format isn't installed in your BenchBot installation" %

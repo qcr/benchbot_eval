@@ -8,26 +8,7 @@ import zipfile
 
 DUMP_LOCATION = '/tmp/benchbot_eval_validator_dump'
 
-FILE_PATH_KEY = '_file_path'
 SKIP_KEY = "SKIP"
-
-
-def env_string(envs_data):
-    return "%s:%s" % (envs_data[0]['name'], ":".join(
-        str(e['variant']) for e in envs_data))
-
-
-def load_functions(data):
-    if 'functions' not in data:
-        return {}
-    sys.path.insert(0, os.path.dirname(data[FILE_PATH_KEY]))
-    ret = {
-        k: getattr(importlib.import_module(re.sub('\.[^\.]*$', "", v)),
-                   re.sub('^.*\.', "", v))
-        for k, v in data['functions'].items()
-    }
-    del sys.path[0]
-    return ret
 
 
 def load_results(results_filenames):
@@ -56,12 +37,3 @@ def load_results(results_filenames):
                 results[r] = json.load(f)
     print("\tDone.\n")
     return results
-
-
-def load_yaml(filename):
-    with open(filename, 'r') as f:
-        return yaml.safe_load(f)
-
-
-def load_yaml_list(filenames_list):
-    return [{**{FILE_PATH_KEY: f}, **load_yaml(f)} for f in filenames_list]
