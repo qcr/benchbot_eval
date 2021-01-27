@@ -1,4 +1,6 @@
+import json
 import pickle
+import pprint
 
 from benchbot_addons import manager as bam
 
@@ -6,10 +8,15 @@ from . import helpers
 
 
 class Evaluator:
-    def __init__(self, evaluation_method, skip_load=False):
+    def __init__(self,
+                 evaluation_method,
+                 scores_filename,
+                 skip_load=False,
+                 print_all=True):
         self.evaluation_method_data = bam.get_match(
             "evaluation_methods", [("name", evaluation_method)],
             return_data=True)
+        self.scores_filename = scores_filename
 
         self.evaluate_fns = bam.load_functions(self.evaluation_method_data)
         assert 'evaluate' in self.evaluate_fns.keys(), (
@@ -21,6 +28,8 @@ class Evaluator:
 
         self.required_task = None
         self.required_envs = None
+
+        self.print_all = print_all
 
         if not skip_load:
             self.load_validator()
@@ -64,6 +73,25 @@ class Evaluator:
             scores_data.append(self.evaluate_fn(v, gts))
 
             # Print the results (if allowed)
+            if self.print_all:
+                print("\nScores for '%s':\n" % k)
+                pprint.pprint(scores_data[-1]['scores'])
+            else:
+                print("Done")
+            print('\n' + '-' * 80 + '\n')
 
         # Amalgamate all of the produced scores if supported by evaluation
         # method
+        if 'combine' in self.evaluate_fns:
+            scores = self.evaluate_fns['combine'](scores_data)
+            print("\nFinal scores for the '%s' task:\n" %
+                  scores['task_details']['name'])
+            pprint.pprint(scores)
+        else:
+            scores = scores_data
+
+        # Save our results & finish
+        with open(self.scores_filename, 'w') as f:
+            json.dump(scores, f)
+        print("\nDone.")
+        return scores
