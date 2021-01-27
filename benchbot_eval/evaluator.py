@@ -1,12 +1,15 @@
 import pickle
 
+from benchbot_addons import manager as bam
+
 from . import helpers
 
 
 class Evaluator:
-    def __init__(self, evaluation_method_filename, skip_load=False):
-        self.evaluation_method_data = helpers.load_yaml(
-            evaluation_method_filename)
+    def __init__(self, evaluation_method, skip_load=False):
+        self.evaluation_method_data = bam.get_match(
+            "evaluation_methods", [("name", evaluation_method)],
+            return_data=True)
 
         self.results_data = None
 
