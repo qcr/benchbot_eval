@@ -83,7 +83,7 @@ class Validator:
                    textwrap.fill("'required_envs=%s':" % self.required_envs,
                                  80)))
             env_strings = {
-                k: helpers.env_string(v['environment_details'])
+                k: bam.env_string(v['environment_details'])
                 for k, v in self.results_data.items()
             }
             skipped = [

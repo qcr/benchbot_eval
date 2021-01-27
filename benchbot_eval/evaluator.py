@@ -44,7 +44,8 @@ class Evaluator:
             k for k, v in self.results_data.items() if not v[helpers.SKIP_KEY]
         ]
         if not valid_results:
-            print("Exiting, as no valid results were provided.")
+            print("Exiting, as no valid results were provided.\n")
+            return
 
         # Load available ground truth data
         # TODO ideally this would only load what is required, but the manager
