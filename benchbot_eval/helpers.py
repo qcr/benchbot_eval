@@ -10,6 +10,8 @@ DUMP_LOCATION = '/tmp/benchbot_eval_validator_dump'
 
 SKIP_KEY = "SKIP"
 
+ZIP_IGNORE = ['submission.json']
+
 
 def load_results(results_filenames):
     # Takes a list of filenames & pulls all data from JSON & *.zip files
@@ -20,7 +22,7 @@ def load_results(results_filenames):
         if zipfile.is_zipfile(r):
             with zipfile.ZipFile(r, 'r') as z:
                 for f in z.filelist:
-                    if f.filename in Evaluator._ZIP_IGNORE:
+                    if f.filename in ZIP_IGNORE:
                         print("\tIgnoring file '%s'" % f.filename)
                     else:
                         with z.open(f, 'r') as zf:
