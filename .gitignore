@@ -1,7 +1,3 @@
-build
-dist
-.vscode
-
 *.pyc
 __pycache__
 python/build
