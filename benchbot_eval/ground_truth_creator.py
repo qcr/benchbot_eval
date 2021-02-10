@@ -26,3 +26,6 @@ class GroundTruthCreator:
 
     def function(self, name):
         return self._functions[name] if name in self._functions else None
+
+    def functions(self):
+        return self._functions.keys()

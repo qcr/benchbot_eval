@@ -37,3 +37,19 @@ Two types of add-ons are used in the BenchBot Evaluation process: format definit
 - validity is determined by the format-specific validation function described in the format's YAML file
 
 Please see the [BenchBot Add-ons Manager's documentation](https://github.com/roboticvisionorg/benchbot_addons) for further details on the different types of add-ons.
+
+## Creating valid results and ground truth files
+
+The [BenchBot software stack](https://github.com/roboticvisionorg/benchbot) includes tools to assist in creating results and ground truth files:
+
+- **results:** are best created using the `empty_results()` and `results_functions()` helper functions in the [BenchBot API](https://github.com/roboticvisionorg/benchbot_api), which automatically populate metadata for your current task and environment.
+- **ground truths:** this package includes a `GroundTruthCreator` class to aid in creating ground truths of a specific format, for a specific environment. Example use includes:
+
+  ```python
+  from benchbot_eval.ground_truth_creator import GroundTruthCreator
+
+  gtc = GroundTruthCreator('object_map_ground_truth', 'miniroom:1')
+  gt = gtc.create_empty();
+  print(gtc.functions())  # ['create', 'create_object']
+  gt['ground_truth']['objects'][0] = gtc.functions('create_object')
+  ```
