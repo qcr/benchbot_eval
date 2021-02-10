@@ -12,7 +12,7 @@ setup(name='benchbot_eval',
       long_description=long_description,
       long_description_content_type='text/markdown',
       packages=find_packages(),
-      install_requires=['numpy', 'pickle', 'shapely'],
+      install_requires=['numpy', 'pickle', 'shapely', 'benchbot_addons'],
       classifiers=(
           "Programming Language :: Python :: 2",
           "Programming Language :: Python :: 2.7",
