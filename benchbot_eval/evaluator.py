@@ -87,7 +87,7 @@ class Evaluator:
             scores = self.evaluate_fns['combine'](scores_data)
             print("\nFinal scores for the '%s' task:\n" %
                   scores['task_details']['name'])
-            pprint.pprint(scores)
+            pprint.pprint(scores['scores'])
         else:
             scores = scores_data
 
