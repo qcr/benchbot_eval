@@ -39,13 +39,13 @@ class Evaluator:
             self.__dict__.update(pickle.load(f).__dict__)
 
     def evaluate(self):
-        # Ensure we have some valid results
-        valid_results = [
-            k for k, v in self.results_data.items() if not v[helpers.SKIP_KEY]
-        ]
+        # Get our valid results
+        valid_results = {
+            k: v
+            for k, v in self.results_data.items() if not v[helpers.SKIP_KEY]
+        }
         if not valid_results:
-            print("Exiting, as no valid results were provided.\n")
-            return
+            print("Skipping to summary, as no valid results were provided.\n")
 
         # Load available ground truth data
         # TODO ideally this would only load what is required, but the manager
@@ -55,9 +55,9 @@ class Evaluator:
         # Iterate through results, attempting evaluation
         gt_formats = self.evaluation_method_data['valid_ground_truth_formats']
         scores_data = []
-        for k, v in self.results_data.items():
+        for k, v in valid_results.items():
             # Find a usable ground truth (one of supported formats, & for same
-            # environment as this result
+            # environment as this result)
             gts = []
             for e in v['environment_details']:
                 gt = next(
@@ -86,7 +86,8 @@ class Evaluator:
         if 'combine' in self.evaluate_fns:
             scores = self.evaluate_fns['combine'](scores_data)
             print("\nFinal scores for the '%s' task:\n" %
-                  scores['task_details']['name'])
+                  (scores['task_details']['name']
+                   if 'name' in scores['task_details'] else 'UNKNOWN'))
             pprint.pprint(scores['scores'])
         else:
             scores = scores_data
