@@ -1,5 +1,6 @@
-from . import evaluator, omq, class_list, iou_tools
+from . import evaluator, validator
 
 from .evaluator import Evaluator
+from .validator import Validator
 
-__all__ = ['evaluator', 'iou_tools', 'class_list', 'omq']
+__all__ = ['evaluator', 'validator']
