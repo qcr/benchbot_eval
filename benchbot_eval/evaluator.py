@@ -84,6 +84,10 @@ class Evaluator:
         # Amalgamate all of the produced scores if supported by evaluation
         # method
         if 'combine' in self.evaluate_fns:
+            if self.required_envs is not None:
+                missing_count = len(self.required_envs) - len(scores_data)
+                if missing_count > 0:
+                    scores_data = scores_data + [{}] * missing_count
             scores = self.evaluate_fns['combine'](scores_data)
             print("\nFinal scores for the '%s' task:\n" %
                   (scores['task_details']['name']
