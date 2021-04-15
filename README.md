@@ -2,6 +2,11 @@
 
 # BenchBot Evaluation
 
+[![BenchBot project](https://img.shields.io/badge/collection-BenchBot-%231a2857)](http://benchbot.org)
+[![QUT Centre for Robotics Open Source](https://github.com/qcr/qcr.github.io/raw/master/misc/badge.svg)](https://qcr.github.io)
+![Primary language](https://img.shields.io/github/languages/top/qcr/benchbot_eval)
+[![License](https://img.shields.io/github/license/qcr/benchbot_eval)](./LICENSE.txt)
+
 BenchBot Evaluation is a library of functions used to call evaluation methods. These methods are installed through the [BenchBot Add-ons Manager](https://github.com/qcr/benchbot-addons), and evaluate the performance of a BenchBot system against the metric. The easiest way to use this module is through the helper scripts provided with the [BenchBot software stack](https://github.com/qcr/benchbot).
 
 ## Installing and performing evaluation with BenchBot Evaluation
